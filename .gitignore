@@ -1,0 +1,6 @@
+/target
+/.grafana
+/.influxdb2
+/output
+
+.env
