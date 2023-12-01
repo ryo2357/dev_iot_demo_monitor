@@ -1,0 +1,7 @@
+version: '3.3'
+services:
+  rust_devcontainer:
+    image: mcr.microsoft.com/devcontainers/rust
+    volumes:
+      - ../:/workspace:cached
+    command: sleep infinity

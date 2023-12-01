@@ -1,0 +1,23 @@
+{
+  "name": "rust-dev",
+  "dockerComposeFile": "docker-compose.yml",
+  "remoteUser": "root",
+  "service": "rust_devcontainer",
+  "workspaceFolder": "/workspace",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "[rust]": {
+          "editor.formatOnSave": true,
+          "editor.formatOnPaste": true
+        },
+        "rust-analyzer.checkOnSave": true,
+        "rust-analyzer.check.command": "clippy",
+        "workbench.colorCustomizations": {
+          "titleBar.activeBackground": "#00ff371c", // タイトルバーの背景色
+        }
+      },
+      "extensions": []
+    }
+  }
+}
