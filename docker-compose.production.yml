@@ -1,0 +1,12 @@
+version: "3.3"
+
+services:
+  gateway:
+    container_name: gateway-iot_demo_monitor
+    build:
+      context: $PWD
+      dockerfile: $PWD/dockerfile
+      target: production
+    tty: true
+    volumes:
+      - $PWD/log:/usr/local/bin/log

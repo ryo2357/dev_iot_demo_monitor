@@ -1,5 +1,5 @@
 [package]
-name = "iot_demo_monitor"
+name = "iot_gateway"
 version = "0.1.0"
 edition = "2021"
 
