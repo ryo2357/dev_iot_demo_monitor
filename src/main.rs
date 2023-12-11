@@ -2,10 +2,37 @@ use chrono::{DateTime, Local};
 use futures::stream;
 use influxdb2::models::DataPoint;
 use influxdb2::Client;
+use log::debug;
 use rand::Rng;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tokio::time::{Duration, Instant};
+use tokio::time::{Duration, Instant, MissedTickBehavior};
+
+mod interface;
+use interface::DemoMachineStatus;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    data_collect_test().await?;
+    Ok(())
+}
+
+#[allow(dead_code)]
+async fn data_collect_test() -> anyhow::Result<()> {
+    dotenv::dotenv().ok();
+    mylogger::init();
+    let (mut machine_status, _) = DemoMachineStatus::create_from_env()?;
+    machine_status.test_reponse_loop().await?;
+    Ok(())
+}
+
+#[allow(dead_code)]
+async fn interface_check() -> anyhow::Result<()> {
+    dotenv::dotenv().ok();
+    mylogger::init();
+    let (mut machine_status, _) = DemoMachineStatus::create_from_env()?;
+    machine_status.check_connection().await?;
+    Ok(())
+}
 
 struct GenerateThread {
     runner: JoinHandle<anyhow::Result<()>>,
@@ -16,8 +43,8 @@ impl GenerateThread {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+#[allow(dead_code)]
+async fn main_thread() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
     let (tx, rx) = mpsc::channel(32);
