@@ -21,7 +21,7 @@ async fn data_collect_test() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     mylogger::init();
     let (mut machine_status, _) = DemoMachineStatus::create_from_env()?;
-    machine_status.test_reponse_loop().await?;
+    machine_status.monitor_test().await?;
     Ok(())
 }
 

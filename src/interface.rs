@@ -16,6 +16,8 @@ pub struct DemoMachineStatusConfig {
     check_command: Vec<u8>,
     check_response: String,
     collecter_command: Vec<u8>,
+    set_moniter_command: Vec<u8>,
+    monitor_readout_command: Vec<u8>,
 }
 impl DemoMachineStatusConfig {
     pub fn create_from_env() -> anyhow::Result<Self> {
@@ -30,12 +32,17 @@ impl DemoMachineStatusConfig {
         //     std::env::var("DemoMachineStatusConfigCollecterCommand")?.into();
 
         let collecter_command: Vec<u8> = "RDS DM1000.U 101\r".into();
+        let set_moniter_command: Vec<u8> =
+            "MWS DM1000.U DM1001.L DM1002.U DM1003.U DM1004.U DM1008.U DM1009.U DM1100.U\r".into();
+        let monitor_readout_command: Vec<u8> = "MWR\r".into();
 
         Ok(Self {
             address,
             check_command,
             check_response,
             collecter_command,
+            set_moniter_command,
+            monitor_readout_command,
         })
     }
     pub fn get_address(&self) -> String {
@@ -52,6 +59,12 @@ impl DemoMachineStatusConfig {
 
     pub fn get_collecter_command(&self) -> Vec<u8> {
         self.collecter_command.to_owned()
+    }
+    pub fn get_set_moniter_command(&self) -> Vec<u8> {
+        self.set_moniter_command.to_owned()
+    }
+    pub fn get_monitor_readout_command(&self) -> Vec<u8> {
+        self.monitor_readout_command.to_owned()
     }
 }
 
@@ -164,6 +177,53 @@ impl DemoMachineStatus {
                 res.get(100).unwrap_or(&default_value)
             );
 
+            let now = Instant::now();
+            if next_loop_start_time > now {
+                tokio::time::sleep(next_loop_start_time - now).await;
+            }
+        }
+
+        Ok(())
+    }
+    pub async fn monitor_test(&mut self) -> anyhow::Result<()> {
+        let mut stream = TcpStream::connect(&self.config.get_address()).await?;
+        stream
+            .write_all(&self.config.get_set_moniter_command())
+            .await?;
+        let mut buf = [0; 5];
+        let n = stream.read(&mut buf).await?;
+        let res = std::str::from_utf8(&buf[..n])
+            .unwrap()
+            .trim_end_matches("\r\n")
+            .to_string();
+        debug!("セットコマンドのレスポンス：response:{:?}", res);
+        let command = &self.config.get_monitor_readout_command();
+
+        let mut next_loop_start_time = Instant::now();
+        for _ in 0..100 {
+            next_loop_start_time += Duration::from_millis(50);
+
+            stream.write_all(command).await?;
+
+            let mut buf = [0; 1024];
+            let n = stream.read(&mut buf).await?;
+
+            let res = std::str::from_utf8(&buf[..n])
+                .unwrap()
+                .trim_end_matches("\r\n")
+                .to_string();
+            let res: Vec<&str> = res.split(' ').collect();
+            let default_value = "データが存在しない";
+
+            let dt: DateTime<Local> = Local::now();
+
+            debug!(
+                "{:?}：DM1000:{:?},DM1100:{:?}",
+                dt,
+                res.first().unwrap_or(&default_value),
+                res.get(7).unwrap_or(&default_value)
+            );
+            // debug!("{:?}：{:?}", dt, res);
             let now = Instant::now();
             if next_loop_start_time > now {
                 tokio::time::sleep(next_loop_start_time - now).await;
