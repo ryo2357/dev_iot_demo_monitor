@@ -10,6 +10,8 @@ use tokio::time::{Duration, Instant, MissedTickBehavior};
 
 mod interface;
 use interface::DemoMachineStatus;
+
+mod collecter;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     data_collect_test().await?;
