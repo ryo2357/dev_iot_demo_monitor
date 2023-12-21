@@ -6,6 +6,8 @@ pub struct DemoMachineConfig {
     check_response: String,
     set_moniter_command: Vec<u8>,
     monitor_readout_command: Vec<u8>,
+    monitor_interval: u64,
+    interval_when_machine_stop: u64,
 }
 impl DemoMachineConfig {
     pub fn create_from_env() -> anyhow::Result<Self> {
@@ -17,7 +19,10 @@ impl DemoMachineConfig {
         let set_moniter_command: Vec<u8> = SET_MONITER_COMMAND.into();
         let monitor_readout_command: Vec<u8> = "MWR\r".into();
 
+        // 機械稼働時は50msec間隔
         let monitor_interval = 50;
+        // 機械停止時時は5000msec間隔
+        let interval_when_machine_stop = 5000;
 
         Ok(Self {
             address,
@@ -25,6 +30,8 @@ impl DemoMachineConfig {
             check_response,
             set_moniter_command,
             monitor_readout_command,
+            monitor_interval,
+            interval_when_machine_stop,
         })
     }
     pub fn get_address(&self) -> String {
@@ -44,4 +51,18 @@ impl DemoMachineConfig {
     pub fn get_monitor_readout_command(&self) -> Vec<u8> {
         self.monitor_readout_command.to_owned()
     }
+    pub fn get_monitor_interval(&self) -> u64 {
+        self.monitor_interval.to_owned()
+    }
+    pub fn get_interval_when_machine_stop(&self) -> u64 {
+        self.interval_when_machine_stop.to_owned()
+    }
+
+    // pub fn get_interval_from_status(&self, status: MachineStatus) -> u64 {
+    //     match status {
+    //         MachineStatus::Stopping => self.interval_when_machine_stop.to_owned(),
+    //         MachineStatus::Running => self.monitor_interval.to_owned(),
+    //         _ => self.interval_when_machine_stop.to_owned(),
+    //     }
+    // }
 }

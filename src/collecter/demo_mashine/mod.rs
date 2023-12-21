@@ -9,6 +9,8 @@ mod data_manager;
 mod interface;
 
 use config::DemoMachineConfig;
+use data_manager::DemoMachineReceiveData;
+use data_manager::DemoMachineStatus;
 use interface::DemoMachineInterface;
 
 #[derive(Debug, PartialEq)]
@@ -23,7 +25,7 @@ pub struct DemoMachineCollecter {
     interface: DemoMachineInterface,
     state: CollecterState,
     interface_hundle: Option<JoinHandle<()>>,
-    converter_hundle: Option<JoinHandle<()>>,
+    manager_hundle: Option<JoinHandle<()>>,
 }
 
 impl DemoMachineCollecter {
@@ -37,7 +39,7 @@ impl DemoMachineCollecter {
                 interface,
                 state: CollecterState::Stopping, // interface,
                 interface_hundle: None,
-                converter_hundle: None,
+                manager_hundle: None,
             },
             rx,
         ))
@@ -62,7 +64,7 @@ impl DemoMachineCollecter {
         let conver_hundle = tokio::spawn(async move {
             // データ変換スレッドを作成する
         });
-        self.converter_hundle = Some(conver_hundle);
+        self.manager_hundle = Some(conver_hundle);
 
         let hundle = tokio::spawn(async move {});
         Ok(())
@@ -81,7 +83,7 @@ impl DemoMachineCollecter {
         }
         self.state = CollecterState::Stopping;
         self.interface_hundle = None;
-        self.converter_hundle = None;
+        self.manager_hundle = None;
 
         Ok(())
     }
