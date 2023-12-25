@@ -79,7 +79,7 @@ impl DemoMachineInterface {
                         .trim_end_matches("\r\n")
                         .to_string();
 
-                    // TODO:想定外のデータについてのハンドリングが必要
+                    // NOTE:想定外のデータについてのハンドリングが必要
                     let recceive_data = DemoMachineReceiveData::create(dt, res)?;
 
                     let now_status = recceive_data.get_status();
@@ -103,8 +103,8 @@ impl DemoMachineInterface {
                 }
                 .await;
 
+                // recceive_data等のエラーハンドリング
                 if let Err(err) = result {
-                    // Print or handle the error as needed
                     warn!("Error: {}", err);
                 }
             }
@@ -112,22 +112,6 @@ impl DemoMachineInterface {
 
         Ok((rx, hundle))
     }
-
-    // pub async fn set_moniter(&mut self) -> anyhow::Result<bool> {
-    //     Ok(true)
-    // }
-
-    // pub async fn get_single_moniter_response(&mut self) -> anyhow::Result<String> {
-    //     Ok("Ok".into())
-    // }
-
-    // pub async fn start_moniter(&mut self) -> anyhow::Result<mpsc::Sender<()>> {
-    //     Ok("Ok".into())
-    // }
-
-    // pub async fn stop_moniter(&mut self) -> anyhow::Result<mpsc::Sender<()>> {
-    //     Ok("Ok".into())
-    // }
 }
 
 struct DemoMachineState {

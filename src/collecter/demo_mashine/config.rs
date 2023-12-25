@@ -57,12 +57,4 @@ impl DemoMachineConfig {
     pub fn get_interval_when_machine_stop(&self) -> u64 {
         self.interval_when_machine_stop.to_owned()
     }
-
-    // pub fn get_interval_from_status(&self, status: MachineStatus) -> u64 {
-    //     match status {
-    //         MachineStatus::Stopping => self.interval_when_machine_stop.to_owned(),
-    //         MachineStatus::Running => self.monitor_interval.to_owned(),
-    //         _ => self.interval_when_machine_stop.to_owned(),
-    //     }
-    // }
 }
