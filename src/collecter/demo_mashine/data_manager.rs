@@ -59,6 +59,7 @@ impl DemoMachineDataManager {
         }
         Ok(())
     }
+    // 内部関数
     // 稼働状態での分岐
     async fn recceive_in_stopping(&mut self, data: DemoMachineReceiveData) -> anyhow::Result<()> {
         if self.shoud_set_operating_data(data.get_dt()) {
@@ -165,19 +166,20 @@ impl DemoMachineDataManager {
         Ok(())
     }
 }
-impl Drop for DemoMachineDataManager {
-    // TODO:うまくいかないのでコレクターの撤去時に処理する
-    // Rustの構造体にDropトレイトを実装したい
-    // Dropされた際に構造体のデータを送信する非同期関数を実行したい
-    // どのように実装すればいい？
-    fn drop(&mut self) {
-        // let send_data = std::mem::take(&mut self.sensor_data);
-        // let send_data = std::mem::take(&mut self.sensor_data);
-        // if send_data.len() > 0 {
-        //     tokio::spawan(async move {})
-        // }
-    }
-}
+//
+// impl Drop for DemoMachineDataManager {
+//     // TODO:うまくいかないのでコレクターの撤去時に処理する
+//     // Rustの構造体にDropトレイトを実装したい
+//     // Dropされた際に構造体のデータを送信する非同期関数を実行したい
+//     // どのように実装すればいい？
+//     fn drop(&mut self) {
+//         // let send_data = std::mem::take(&mut self.sensor_data);
+//         // let send_data = std::mem::take(&mut self.sensor_data);
+//         // if send_data.len() > 0 {
+//         //     tokio::spawan(async move {})
+//         // }
+//     }
+// }
 
 pub struct DemoMachineReceiveData {
     dt: DateTime<Local>,

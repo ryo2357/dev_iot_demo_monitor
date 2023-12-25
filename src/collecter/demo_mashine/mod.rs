@@ -1,8 +1,8 @@
 use influxdb2::models::DataPoint;
 use log::warn;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::Interval;
-use tokio::{net::unix::pipe::Receiver, sync::mpsc};
 
 mod config;
 mod data_manager;
@@ -19,13 +19,27 @@ enum CollecterState {
     Collecting,
 }
 
+// ラップ処理を書くのも大変そう
+enum CollecterMessage {
+    ReceiveData(DemoMachineReceiveData),
+    Command(CollecterCommand),
+}
+
+enum CollecterCommand {
+    Stop,
+}
+
 pub struct DemoMachineCollecter {
     sender: mpsc::Sender<Vec<DataPoint>>,
     // config: DemoMachineConfig,
     interface: DemoMachineInterface,
     state: CollecterState,
+
     interface_hundle: Option<JoinHandle<()>>,
     manager_hundle: Option<JoinHandle<()>>,
+
+    command_sender: Option<mpsc::Sender<CollecterCommand>>,
+    control_hundle: Option<JoinHandle<()>>,
 }
 
 impl DemoMachineCollecter {
@@ -40,6 +54,9 @@ impl DemoMachineCollecter {
                 state: CollecterState::Stopping, // interface,
                 interface_hundle: None,
                 manager_hundle: None,
+
+                command_sender: None,
+                control_hundle: None,
             },
             rx,
         ))
@@ -61,10 +78,10 @@ impl DemoMachineCollecter {
         self.interface_hundle = Some(interface_hundle);
         self.state = CollecterState::Collecting;
         let sender = self.sender.clone();
-        let conver_hundle = tokio::spawn(async move {
+        let manager_hundle = tokio::spawn(async move {
             // データ変換スレッドを作成する
         });
-        self.manager_hundle = Some(conver_hundle);
+        self.manager_hundle = Some(manager_hundle);
 
         let hundle = tokio::spawn(async move {});
         Ok(())
