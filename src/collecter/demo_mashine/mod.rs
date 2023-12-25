@@ -1,4 +1,5 @@
 use influxdb2::models::DataPoint;
+use log::error;
 use log::warn;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -9,6 +10,7 @@ mod data_manager;
 mod interface;
 
 use config::DemoMachineConfig;
+use data_manager::DemoMachineDataManager;
 use data_manager::DemoMachineReceiveData;
 use data_manager::DemoMachineStatus;
 use interface::DemoMachineInterface;
@@ -27,9 +29,6 @@ pub struct DemoMachineCollecter {
 
     interface_hundle: Option<JoinHandle<()>>,
     manager_hundle: Option<JoinHandle<()>>,
-
-    command_sender: Option<mpsc::Sender<DemoMachineReceiveData>>,
-    control_hundle: Option<JoinHandle<()>>,
 }
 
 impl DemoMachineCollecter {
@@ -44,9 +43,6 @@ impl DemoMachineCollecter {
                 state: CollecterState::Stopping, // interface,
                 interface_hundle: None,
                 manager_hundle: None,
-
-                command_sender: None,
-                control_hundle: None,
             },
             rx,
         ))
@@ -64,16 +60,31 @@ impl DemoMachineCollecter {
             )
         }
 
-        let (data_revever, interface_hundle) = self.interface.start_moniter(interval).await?;
-        self.interface_hundle = Some(interface_hundle);
         self.state = CollecterState::Collecting;
+
+        let (mut data_revever, interface_hundle) = self.interface.start_moniter(interval).await?;
+        self.interface_hundle = Some(interface_hundle);
         let sender = self.sender.clone();
         let manager_hundle = tokio::spawn(async move {
             // データ変換スレッドを作成する
+            let mut data_manager = DemoMachineDataManager::create(sender);
+
+            while let Some(data) = data_revever.recv().await {
+                match data_manager.recceive_response(data).await {
+                    Ok(()) => {}
+                    Err(r) => {
+                        // TODO:ここのエラーハンドリングは用検討
+                        // プログラムを終了させてもよい？
+                        error!(
+                            "error in DemoMachineDataManager::recceive_response():{:?}",
+                            r
+                        )
+                    }
+                }
+            }
         });
         self.manager_hundle = Some(manager_hundle);
 
-        let hundle = tokio::spawn(async move {});
         Ok(())
     }
 

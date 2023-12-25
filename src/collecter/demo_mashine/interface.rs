@@ -36,29 +36,6 @@ impl DemoMachineInterface {
         Ok(Self { config })
     }
 
-    // pub async fn check_connection(&mut self) -> anyhow::Result<()> {
-    //     let mut stream = TcpStream::connect(self.config.get_address()).await?;
-    //     stream.write_all(&self.config.get_check_command()).await?;
-
-    //     let mut buf = [0; 4];
-    //     let n = stream.read(&mut buf).await?;
-    //     let res = std::str::from_utf8(&buf[..n])
-    //         .unwrap()
-    //         .trim_end_matches("\r\n")
-    //         .to_string();
-    //     debug!("チェックコマンドのレスポンス:{:?}", res);
-
-    //     if res == self.config.get_check_response() {
-    //         self.is_check_connection = true;
-    //         debug!("正しい機種");
-    //         Ok(())
-    //     } else {
-    //         self.is_check_connection = false;
-    //         debug!("想定外の機種");
-    //         Err(anyhow::anyhow!("diffelent plc"))
-    //     }
-    // }
-
     pub async fn start_moniter(
         &mut self,
         interval: u64,
