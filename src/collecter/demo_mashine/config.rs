@@ -4,6 +4,9 @@ use super::data_manager::SET_MONITER_COMMAND;
 const MONITOR_INTERVAL: u64 = 50;
 // 機械停止時時は1000msec間隔
 const INTERVAL_WHEN_MACHINE_STOP: u64 = 5000;
+const CHECK_COMMAND: &[u8] = b"?K\r";
+const CHECK_RESPONSE: &str = "55";
+const MONITOR_READOUT_COMMAND: &[u8] = b"MWR\r";
 
 pub struct DemoMachineConfig {
     address: String,
@@ -18,11 +21,11 @@ impl DemoMachineConfig {
     pub fn create_from_env() -> anyhow::Result<Self> {
         let address = std::env::var("DemoMachineStatusConfigAddress")?;
 
-        let check_command: Vec<u8> = "?K\r".into();
-        let check_response = "55".into();
+        let check_command: Vec<u8> = CHECK_COMMAND.into();
+        let check_response = CHECK_RESPONSE.into();
 
         let set_moniter_command: Vec<u8> = SET_MONITER_COMMAND.into();
-        let monitor_readout_command: Vec<u8> = "MWR\r".into();
+        let monitor_readout_command: Vec<u8> = MONITOR_READOUT_COMMAND.into();
 
         let monitor_interval = MONITOR_INTERVAL;
         let interval_when_machine_stop = INTERVAL_WHEN_MACHINE_STOP;
