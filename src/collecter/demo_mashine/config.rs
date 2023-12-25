@@ -1,5 +1,10 @@
 use super::data_manager::SET_MONITER_COMMAND;
 
+// 機械稼働時は50msec間隔
+const MONITOR_INTERVAL: u64 = 50;
+// 機械停止時時は1000msec間隔
+const INTERVAL_WHEN_MACHINE_STOP: u64 = 5000;
+
 pub struct DemoMachineConfig {
     address: String,
     check_command: Vec<u8>,
@@ -19,10 +24,8 @@ impl DemoMachineConfig {
         let set_moniter_command: Vec<u8> = SET_MONITER_COMMAND.into();
         let monitor_readout_command: Vec<u8> = "MWR\r".into();
 
-        // 機械稼働時は50msec間隔
-        let monitor_interval = 50;
-        // 機械停止時時は5000msec間隔
-        let interval_when_machine_stop = 5000;
+        let monitor_interval = MONITOR_INTERVAL;
+        let interval_when_machine_stop = INTERVAL_WHEN_MACHINE_STOP;
 
         Ok(Self {
             address,

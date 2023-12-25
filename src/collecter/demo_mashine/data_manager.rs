@@ -7,6 +7,8 @@ pub const SET_MONITER_COMMAND: &[u8] =
     b"MWS DM1000.U DM1001.L DM1002.U DM1003.U DM1004.U DM1008.U DM1009.U DM1100.U\r";
 
 const RESPONSE_LENGTH: usize = 50;
+const SEND_CHUNK_SIZE: usize = 50;
+const OPERATING_DATA_INTERVAL_SEC: u32 = 5;
 
 pub struct DemoMachineDataManager {
     sender: mpsc::Sender<Vec<DataPoint>>,
@@ -32,10 +34,10 @@ impl DemoMachineDataManager {
         Self {
             sender,
             last_machine_status: DemoMachineStatus::Stopping,
-            send_chunk_size: 50,
+            send_chunk_size: SEND_CHUNK_SIZE,
             operating_data: Vec::<DataPoint>::new(),
             last_operating_data_time: dt,
-            operating_data_interval_sec: 5,
+            operating_data_interval_sec: OPERATING_DATA_INTERVAL_SEC,
             sensor_data: Vec::<DataPoint>::new(),
             // last_sensor_data_time: dt,
         }
