@@ -19,16 +19,6 @@ enum CollecterState {
     Collecting,
 }
 
-// ラップ処理を書くのも大変そう
-enum CollecterMessage {
-    ReceiveData(DemoMachineReceiveData),
-    Command(CollecterCommand),
-}
-
-enum CollecterCommand {
-    Stop,
-}
-
 pub struct DemoMachineCollecter {
     sender: mpsc::Sender<Vec<DataPoint>>,
     // config: DemoMachineConfig,
@@ -38,7 +28,7 @@ pub struct DemoMachineCollecter {
     interface_hundle: Option<JoinHandle<()>>,
     manager_hundle: Option<JoinHandle<()>>,
 
-    command_sender: Option<mpsc::Sender<CollecterCommand>>,
+    command_sender: Option<mpsc::Sender<DemoMachineReceiveData>>,
     control_hundle: Option<JoinHandle<()>>,
 }
 

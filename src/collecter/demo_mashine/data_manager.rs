@@ -1,6 +1,7 @@
 use chrono::{DateTime, Local};
 use influxdb2::models::DataPoint;
 use tokio::sync::mpsc;
+use tokio::task;
 
 pub const SET_MONITER_COMMAND: &[u8] =
     b"MWS DM1000.U DM1001.L DM1002.U DM1003.U DM1004.U DM1008.U DM1009.U DM1100.U\r";
@@ -166,20 +167,26 @@ impl DemoMachineDataManager {
         Ok(())
     }
 }
-//
-// impl Drop for DemoMachineDataManager {
-//     // TODO:うまくいかないのでコレクターの撤去時に処理する
-//     // Rustの構造体にDropトレイトを実装したい
-//     // Dropされた際に構造体のデータを送信する非同期関数を実行したい
-//     // どのように実装すればいい？
-//     fn drop(&mut self) {
-//         // let send_data = std::mem::take(&mut self.sensor_data);
-//         // let send_data = std::mem::take(&mut self.sensor_data);
-//         // if send_data.len() > 0 {
-//         //     tokio::spawan(async move {})
-//         // }
-//     }
-// }
+
+impl Drop for DemoMachineDataManager {
+    // NOTE:Dropトレイト内のエラー処理はどうする
+    fn drop(&mut self) {
+        task::block_in_place(|| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                // 何か非同期的な処理を行う
+                println!("data_manager drop start");
+                if !self.operating_data.is_empty() {
+                    self.send_operating_data().await.unwrap();
+                }
+                if !self.sensor_data.is_empty() {
+                    self.send_sensor_data().await.unwrap();
+                }
+                println!("data_manager drop end");
+            });
+        });
+    }
+}
 
 pub struct DemoMachineReceiveData {
     dt: DateTime<Local>,
