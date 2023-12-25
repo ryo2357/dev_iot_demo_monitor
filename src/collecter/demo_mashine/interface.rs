@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local};
+use chrono::Local;
 use log::{debug, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -38,7 +38,6 @@ impl DemoMachineInterface {
 
     pub async fn start_moniter(
         &mut self,
-        interval: u64,
     ) -> anyhow::Result<(mpsc::Receiver<DemoMachineReceiveData>, JoinHandle<()>)> {
         let (tx, rx) = mpsc::channel(32);
 
@@ -134,6 +133,7 @@ impl DemoMachineState {
     }
 
     fn get_interval(&self) -> u64 {
+        #[allow(unreachable_patterns)]
         match self.status {
             DemoMachineStatus::Stopping => self.interval_when_machine_stop.to_owned(),
             DemoMachineStatus::Running => self.monitor_interval.to_owned(),

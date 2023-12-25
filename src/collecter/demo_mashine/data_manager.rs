@@ -28,7 +28,7 @@ pub struct DemoMachineDataManager {
 }
 
 impl DemoMachineDataManager {
-    pub fn create(mut sender: mpsc::Sender<Vec<DataPoint>>) -> Self {
+    pub fn create(sender: mpsc::Sender<Vec<DataPoint>>) -> Self {
         let dt = Local::now();
         // TODO:定数はConfigに
         Self {

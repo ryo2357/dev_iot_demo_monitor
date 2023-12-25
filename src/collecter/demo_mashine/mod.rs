@@ -3,7 +3,6 @@ use log::error;
 use log::warn;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tokio::time::Interval;
 
 mod config;
 mod data_manager;
@@ -48,7 +47,7 @@ impl DemoMachineCollecter {
         ))
     }
 
-    pub async fn start_data_collection(&mut self, interval: u64) -> anyhow::Result<()> {
+    pub async fn start_data_collection(&mut self) -> anyhow::Result<()> {
         if self.state != CollecterState::Stopping {
             warn!(
                 "start_data_collection can not execute: state = {:?}",
@@ -62,7 +61,7 @@ impl DemoMachineCollecter {
 
         self.state = CollecterState::Collecting;
 
-        let (mut data_revever, interface_hundle) = self.interface.start_moniter(interval).await?;
+        let (mut data_revever, interface_hundle) = self.interface.start_moniter().await?;
         self.interface_hundle = Some(interface_hundle);
         let sender = self.sender.clone();
         let manager_hundle = tokio::spawn(async move {
