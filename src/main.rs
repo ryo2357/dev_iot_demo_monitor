@@ -6,6 +6,7 @@ mod influxdb;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
+    mylogger::init();
     test_run().await?;
     Ok(())
 }
@@ -16,8 +17,11 @@ async fn test_run() -> anyhow::Result<()> {
     tokio::spawn(influxdb::send_data(receiver));
 
     // 10分間データ収集を実行
+    log::info!("before start");
     collecter.start_data_collection().await?;
+    log::info!("after start");
     wait(600).await;
+    log::info!("after wait");
     collecter.stop_data_collection()?;
 
     Ok(())

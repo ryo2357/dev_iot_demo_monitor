@@ -6,7 +6,8 @@ use tokio::task;
 pub const SET_MONITER_COMMAND: &[u8] =
     b"MWS DM1000.U DM1001.L DM1002.U DM1003.U DM1004.U DM1008.U DM1009.U DM1100.U\r";
 
-const RESPONSE_LENGTH: usize = 50;
+const RESPONSE_LENGTH: usize = 53;
+
 const SEND_CHUNK_SIZE: usize = 50;
 const OPERATING_DATA_INTERVAL_SEC: u32 = 5;
 
@@ -199,7 +200,12 @@ impl DemoMachineReceiveData {
     pub fn create(dt: DateTime<Local>, data: String) -> anyhow::Result<Self> {
         // TODO:Stringが短い場合(受信データが不正な場合)のエラーハンドリング
         if data.len() != RESPONSE_LENGTH {
-            anyhow::bail!("データ長が{:?}と異なる:{:?}", RESPONSE_LENGTH, data.len())
+            anyhow::bail!(
+                "データ長が{:?}と異なる:{:?}:{:?}",
+                RESPONSE_LENGTH,
+                data.len(),
+                data
+            )
         }
 
         // TODO:実態に合わせた判定式を作成
@@ -234,17 +240,13 @@ impl DemoMachineReceiveData {
         //     _ => false,
         // };
 
-        let tempureture_1: i64 = match res.get(7) {
+        // 多分u32やがDataPointの型の都合上、i64にパースする必要がある
+        let dm_1100: i64 = match res.get(7) {
             Some(t) => t.parse()?,
             None => anyhow::bail!("parse_operation_dataでエラー"),
         };
 
-        let tempureture_2: i64 = match res.get(8) {
-            Some(t) => t.parse()?,
-            None => anyhow::bail!("parse_operation_dataでエラー"),
-        };
-
-        let tempureture_3: i64 = match res.get(9) {
+        let dm_1000: i64 = match res.get(1) {
             Some(t) => t.parse()?,
             None => anyhow::bail!("parse_operation_dataでエラー"),
         };
@@ -253,9 +255,8 @@ impl DemoMachineReceiveData {
         let operation_point = DataPoint::builder("demo_machine")
             .tag("info_type", "operation")
             .field("is_running", is_running)
-            .field("tempureture_1", tempureture_1)
-            .field("tempureture_2", tempureture_2)
-            .field("tempureture_3", tempureture_3)
+            .field("dm_1100", dm_1100)
+            .field("dm_1000", dm_1000)
             .timestamp(time)
             .build()?;
 
