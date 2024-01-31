@@ -1,15 +1,31 @@
 use chrono::{DateTime, Local};
 use influxdb2::models::DataPoint;
+use log::debug;
 use tokio::sync::mpsc;
 use tokio::task;
 
+//
 pub const SET_MONITER_COMMAND: &[u8] =
     b"MWS DM1000.U DM1001.L DM1002.U DM1003.U DM1004.U DM1008.U DM1009.U DM1100.U\r";
 
+// "40137 +0000000000 00000 00000 00000 00000 00000 34601"
+// DM1002を稼働状況にする　⇒　DemoMachineReceiveData::create()で確認している
+// 00000 : 停止流、00001 : 稼働中
+//
+// DM1000,DM1100 : 40ms毎に加算　オペレーションデータ
+// DM1003：80ms毎and稼働時に加算　センサデータ
+// DM1004：80ms毎and停止時に加算
+
 const RESPONSE_LENGTH: usize = 53;
 
+// sensor data 50ms × 50chunk = 2.5s
+// 2.5秒毎に出力される
 const SEND_CHUNK_SIZE: usize = 50;
-const OPERATING_DATA_INTERVAL_SEC: u32 = 5;
+
+// operating data 1s × 50chunk = 50s
+// 50秒毎に出力される
+// const OPERATING_DATA_INTERVAL_SEC: u32 = 5;
+const OPERATING_DATA_INTERVAL_SEC: u32 = 1;
 
 pub struct DemoMachineDataManager {
     sender: mpsc::Sender<Vec<DataPoint>>,
@@ -45,6 +61,8 @@ impl DemoMachineDataManager {
     }
 
     pub async fn recceive_response(&mut self, data: DemoMachineReceiveData) -> anyhow::Result<()> {
+        // debug!("recceive_response");
+        // 5秒毎にデータ収集してる
         #[allow(unreachable_patterns)]
         match self.last_machine_status {
             DemoMachineStatus::Running => match data.get_status() {
@@ -66,12 +84,14 @@ impl DemoMachineDataManager {
     // 内部関数
     // 稼働状態での分岐
     async fn recceive_in_stopping(&mut self, data: DemoMachineReceiveData) -> anyhow::Result<()> {
+        // debug!("recceive_in_stopping");
         if self.shoud_set_operating_data(data.get_dt()) {
             self.set_operation_data(data).await?;
         }
         Ok(())
     }
     async fn recceive_in_runnning(&mut self, data: DemoMachineReceiveData) -> anyhow::Result<()> {
+        // debug!("recceive_in_runnning");
         if self.shoud_set_operating_data(data.get_dt()) {
             self.set_operating_and_sensor(data).await?;
         } else {
@@ -81,6 +101,9 @@ impl DemoMachineDataManager {
         Ok(())
     }
     async fn recceive_to_stopping(&mut self, data: DemoMachineReceiveData) -> anyhow::Result<()> {
+        self.last_machine_status = DemoMachineStatus::Stopping;
+        debug!("recceive_to_stopping");
+
         if self.shoud_set_operating_data(data.get_dt()) {
             self.set_operation_data(data).await?;
         }
@@ -89,6 +112,8 @@ impl DemoMachineDataManager {
         Ok(())
     }
     async fn recceive_to_runnning(&mut self, data: DemoMachineReceiveData) -> anyhow::Result<()> {
+        self.last_machine_status = DemoMachineStatus::Running;
+        debug!("recceive_to_runnning");
         // 切り替え時に特殊な処理を行わないので
         // recceive_in_runnningと同じになる
         if self.shoud_set_operating_data(data.get_dt()) {
@@ -157,14 +182,13 @@ impl DemoMachineDataManager {
     // TODO:Drop時に実行する
     async fn send_operating_data(&mut self) -> anyhow::Result<()> {
         let send_data = std::mem::take(&mut self.operating_data);
+        debug!("send_operating_data {} data", send_data.len());
         self.sender.send(send_data).await?;
         Ok(())
     }
     async fn send_sensor_data(&mut self) -> anyhow::Result<()> {
-        // 下記コードよりも軽く実装されているはず
-        // let send_data = self.sensor_data.clone();
-        // self.sensor_data.clear();
         let send_data = std::mem::take(&mut self.sensor_data);
+        debug!("send_sensor_data {} data", send_data.len());
         self.sender.send(send_data).await?;
 
         Ok(())
@@ -209,10 +233,13 @@ impl DemoMachineReceiveData {
         }
 
         // TODO:実態に合わせた判定式を作成
-        let status = match &data[4..6] {
-            "DM" => DemoMachineStatus::Running,
+        // DM1002を稼働状況のデバイスとしている
+        let status = match &data[18..23] {
+            "00001" => DemoMachineStatus::Running,
+            "00000" => DemoMachineStatus::Stopping,
             _ => DemoMachineStatus::Stopping,
         };
+        // debug!("{}", &data[18..22]);
         Ok(Self { dt, data, status })
     }
 
@@ -270,34 +297,24 @@ impl DemoMachineReceiveData {
 
         let res: Vec<&str> = self.data.split(' ').collect();
 
-        let is_running = matches!(self.status, DemoMachineStatus::Running);
-        // let is_running = match self.status {
-        //     DemoMachineStatus::Running => true,
-        //     _ => false,
-        // };
+        // センサーデータは稼働中のみ取得するので不要
+        // let is_running = matches!(self.status, DemoMachineStatus::Running);
 
-        let tempureture_1: i64 = match res.get(7) {
+        let dm_1003: i64 = match res.get(2) {
             Some(t) => t.parse()?,
-            None => anyhow::bail!("parse_operation_dataでエラー"),
+            None => anyhow::bail!("parse_sensor_dataでエラー"),
         };
 
-        let tempureture_2: i64 = match res.get(8) {
+        let dm_1004: i64 = match res.get(3) {
             Some(t) => t.parse()?,
-            None => anyhow::bail!("parse_operation_dataでエラー"),
-        };
-
-        let tempureture_3: i64 = match res.get(9) {
-            Some(t) => t.parse()?,
-            None => anyhow::bail!("parse_operation_dataでエラー"),
+            None => anyhow::bail!("parse_sensor_dataでエラー"),
         };
 
         // bool,i64,f64,String,&strが可能
         let sensor_point = DataPoint::builder("demo_machine")
             .tag("info_type", "sensor")
-            .field("is_running", is_running)
-            .field("tempureture_1", tempureture_1)
-            .field("tempureture_2", tempureture_2)
-            .field("tempureture_3", tempureture_3)
+            .field("tempureture_1", dm_1003)
+            .field("tempureture_2", dm_1004)
             .timestamp(time)
             .build()?;
 
