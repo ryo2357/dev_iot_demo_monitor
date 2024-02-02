@@ -59,8 +59,6 @@ impl DemoMachineCollecter {
             )
         }
 
-        self.state = CollecterState::Collecting;
-
         let (mut data_revever, interface_hundle) = self.interface.start_moniter().await?;
         self.interface_hundle = Some(interface_hundle);
         let sender = self.sender.clone();
@@ -83,6 +81,7 @@ impl DemoMachineCollecter {
             }
         });
         self.manager_hundle = Some(manager_hundle);
+        self.state = CollecterState::Collecting;
 
         Ok(())
     }

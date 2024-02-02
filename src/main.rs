@@ -2,12 +2,39 @@ use tokio::time::Duration;
 
 mod collecter;
 mod influxdb;
+mod verify_influxdb;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     mylogger::init();
-    test_run().await?;
+    verify_influxdb().await?;
+    Ok(())
+}
+
+#[allow(dead_code)]
+async fn verify_influxdb() -> anyhow::Result<()> {
+    let (mut collecter, receiver) = verify_influxdb::DummyDataMaker::new()?;
+    let data_base = verify_influxdb::InfluxDB::create_from_env()?;
+
+    tokio::spawn(data_base.start_send_data(receiver));
+
+    // 10分間データ収集を実行
+    collecter.start_making_data().await?;
+    log::info!("32秒間データを作成start_making_data");
+    wait(32).await;
+    log::info!("stop_data_collection");
+    collecter.stop_data_collection()?;
+    wait(100).await;
+    log::info!("10秒たったのでstart_making_data");
+    collecter.start_making_data().await?;
+    log::info!("start_making_data");
+    wait(32).await;
+    collecter.stop_data_collection()?;
+    log::info!("stop_data_collection");
+
+    log::info!("finish");
+
     Ok(())
 }
 
