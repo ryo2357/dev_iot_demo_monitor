@@ -1,8 +1,11 @@
 {
-  "name": "rust-dev",
-  "dockerComposeFile": "docker-compose.yml",
+  "name": "iot_demo_monitior",
+  "dockerComposeFile": [
+    "../docker-compose.dev.yml",
+    "../docker-compose.yml"
+  ],
   "remoteUser": "root",
-  "service": "rust_devcontainer",
+  "service": "gateway_dev",
   "workspaceFolder": "/workspace",
   "customizations": {
     "vscode": {

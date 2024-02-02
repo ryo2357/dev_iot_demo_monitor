@@ -1,4 +1,5 @@
 version: "3.3"
+name: iot_demo_monitior
 
 services:
   influxdb:
@@ -7,6 +8,9 @@ services:
     volumes:
       - ./.influxdb2/data:/var/lib/influxdb2
       - ./.influxdb2/config:/etc/influxdb2
+    # volumes:
+    #   - $PWD/.influxdb2/data:/var/lib/influxdb2
+    #   - $PWD/.influxdb2/config:/etc/influxdb2
     ports:
       - 8086:8086
     environment:
@@ -15,6 +19,8 @@ services:
       - DOCKER_INFLUXDB_INIT_PASSWORD=password
       - DOCKER_INFLUXDB_INIT_ORG=organization
       - DOCKER_INFLUXDB_INIT_BUCKET=bucket
+    networks:
+      - network
 
   grafana:
     image: grafana/grafana-oss:9.5.5
@@ -25,8 +31,14 @@ services:
     user: "0"
     volumes:
       - ./.grafana/data:/var/lib/grafana
+    # volumes:
+    #   - $PWD/.grafana/data:/var/lib/grafana
     depends_on:
       - influxdb
     environment:
       - GF_SERVER_ROOT_URL=http://localhost:8085
       - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - network
+networks:
+  network:

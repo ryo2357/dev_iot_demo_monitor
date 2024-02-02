@@ -1,0 +1,13 @@
+version: '3.3'
+services:
+  gateway_dev:
+    image: mcr.microsoft.com/devcontainers/rust
+    volumes:
+      - ./:/workspace:cached
+    command: sleep infinity
+    # データベースアクセスのため追加
+    depends_on:
+      - influxdb
+      - grafana
+    networks:
+      - network
