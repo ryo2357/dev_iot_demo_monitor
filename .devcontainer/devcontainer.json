@@ -20,7 +20,9 @@
           "titleBar.activeBackground": "#00ff371c", // タイトルバーの背景色
         }
       },
-      "extensions": []
+      "extensions": [
+        "Gruntfuggly.todo-tree"
+      ]
     }
   }
 }

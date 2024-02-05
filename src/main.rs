@@ -21,19 +21,19 @@ async fn verify_influxdb() -> anyhow::Result<()> {
 
     // 10分間データ収集を実行
     collecter.start_making_data().await?;
-    log::info!("32秒間データを作成start_making_data");
-    wait(32).await;
-    log::info!("stop_data_collection");
-    collecter.stop_data_collection()?;
-    wait(100).await;
-    log::info!("10秒たったのでstart_making_data");
+    wait(12).await;
+    log::info!("12秒間データを作成完了");
+
+    collecter.stop_making_data().await?;
+    wait(50).await;
+    log::info!("50秒停止完了");
     collecter.start_making_data().await?;
-    log::info!("start_making_data");
-    wait(32).await;
-    collecter.stop_data_collection()?;
-    log::info!("stop_data_collection");
+    wait(22).await;
+    log::info!("22秒間データを作成完了");
+    collecter.stop_making_data().await?;
 
     log::info!("finish");
+    // TODO: collecterをstop後。送信完了まで待つ必要がある
 
     Ok(())
 }

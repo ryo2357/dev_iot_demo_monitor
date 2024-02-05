@@ -1,14 +1,14 @@
-use chrono::Local;
+use chrono::{DateTime, Local};
 use futures::stream;
 use influxdb2::models::DataPoint;
 use influxdb2::Client;
 use log::{debug, error, warn};
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
 
 use rand::Rng;
-use rand::SeedableRng;
 pub struct InfluxDB {
     client: Client,
     bucket: String,
@@ -48,9 +48,16 @@ impl InfluxDB {
     }
 }
 
+#[derive(Debug, PartialEq)]
+enum MakerState {
+    Stopping,
+    Working,
+}
+
 pub struct DummyDataMaker {
     sender: mpsc::Sender<Vec<DataPoint>>,
-    thread: Option<GenerateThread>,
+    manager_hundle: Option<JoinHandle<()>>,
+    state: MakerState,
 }
 impl DummyDataMaker {
     pub fn new() -> anyhow::Result<(Self, mpsc::Receiver<Vec<DataPoint>>)> {
@@ -59,36 +66,52 @@ impl DummyDataMaker {
         Ok((
             Self {
                 sender: tx,
-                thread: None,
+                manager_hundle: None,
+                state: MakerState::Stopping,
             },
             rx,
         ))
     }
-    // 他のメソッドと合わせるために非同期関数にしている
     pub async fn start_making_data(&mut self) -> anyhow::Result<()> {
-        if self.thread.is_some() {
-            warn!("already making data in DummyDataMaker::start_making_data");
-            anyhow::bail!("already making data in DummyDataMaker::start_making_data")
+        if self.state != MakerState::Stopping {
+            warn!(
+                "start_data_collection can not execute: state = {:?}",
+                self.state
+            );
+            anyhow::bail!(
+                "start_data_collection can not execute: state = {:?}",
+                self.state
+            )
         }
-
         // 処理
         let sender = self.sender.clone();
-        let generate_thread = GenerateThread::start(sender)?;
+        let manager_hundle = tokio::spawn(async move {
+            // データ変換スレッドを作成する
+            generate_data_before(sender).await;
+        });
 
-        self.thread = Some(generate_thread);
-        debug!("DummyDataMaker start making data");
+        self.state = MakerState::Working;
+        self.manager_hundle = Some(manager_hundle);
+        debug!("DummyDataMaker is Working");
         Ok(())
     }
 
-    pub async fn stop_making_data(&mut self) -> anyhow::Result<()> {
-        if let Some(thread) = self.thread.take() {
-            thread.stop().await?;
-        } else {
-            warn!("not making data in DummyDataMaker::stop_making_data");
-            anyhow::bail!("not making data in DummyDataMaker::stop_making_data")
+    pub fn stop_data_collection(&mut self) -> anyhow::Result<()> {
+        if self.state != MakerState::Working {
+            warn!(
+                "stop_data_collection can not execute: state = {:?}",
+                self.state
+            );
+            anyhow::bail!(
+                "stop_data_collection can not execute: state = {:?}",
+                self.state
+            )
         }
+        self.state = MakerState::Stopping;
+        // self.interface_hundle = None;
+        self.manager_hundle = None;
+        debug!("DummyDataMaker is Stopping");
 
-        debug!("DummyDataMaker stop");
         Ok(())
     }
 }
@@ -105,11 +128,11 @@ impl GenerateThread {
         let (point_sender, point_receiver) = mpsc::channel(32);
         let point_generate_thread = tokio::spawn(async move {
             // データ変換スレッドを作成する
-            let _ = generate_data_point(point_sender, stop_receiver).await;
+            generate_data_point(point_sender, stop_receiver).await;
         });
         let point_manage_thread = tokio::spawn(async move {
             // Vec<DataPoint>に変換するスレッド
-            let _ = collect_points_to_vec(tx, point_receiver).await;
+            collect_points_to_vec(tx, point_receiver).await;
         });
         Ok(Self {
             point_generate_thread,
@@ -138,11 +161,6 @@ async fn collect_points_to_vec(
             points = Vec::<DataPoint>::new();
         }
     }
-
-    if !points.is_empty() {
-        tx.send(points).await?;
-    }
-
     Ok(())
 }
 
@@ -155,10 +173,7 @@ async fn generate_data_point(
     let mut field2 = 50.0;
     let mut field3 = 50.0;
     let mut next_loop_start_time = Instant::now();
-    // let mut rng = rand::thread_rng();
-    let mut rng = rand::rngs::StdRng::from_entropy();
-    // Sendを実装している乱数生成器
-    // use rand::SeedableRng;で使える
+    let mut rng = rand::thread_rng();
 
     loop {
         next_loop_start_time += Duration::from_millis(50);
@@ -187,6 +202,96 @@ async fn generate_data_point(
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+async fn generate_data(
+    tx: mpsc::Sender<Vec<DataPoint>>,
+    stop_receiver: oneshot::Receiver<()>,
+) -> anyhow::Result<()> {
+    // データ生成処理
+    // 50msごとにデータを生成してチャンネルに送信
+    // 200データ⇒10s毎にtxに送信×60⇒10分分のデータ
+    let mut field1 = 50.0;
+    let mut field2 = 50.0;
+    let mut field3 = 50.0;
+    let mut next_loop_start_time = Instant::now();
+
+    // for _ in 0..60 {
+    loop {
+        tokio::select! {
+            _ = stop_receiver => {
+                // 外部からのシグナルを受け取った場合の処理
+                break;
+            }
+            _ = async {
+                let mut points: Vec<DataPoint> = Vec::<DataPoint>::new();
+                for _ in 0..200 {
+                    // println!("{},{},{}", field1, field2, field3);
+                    next_loop_start_time += Duration::from_millis(50);
+                    let time = Local::now().timestamp_nanos_opt().unwrap();
+
+                    let point = generate_tempurature_data_point(field1, field2, field3, time)?;
+                    points.push(point);
+
+                    {
+                        let mut rng = rand::thread_rng();
+                        field1 += rng.gen_range(-100..=100) as f64 / 10.0;
+                        field2 += rng.gen_range(-100..=100) as f64 / 10.0;
+                        field3 += rng.gen_range(-100..=100) as f64 / 10.0;
+                    }
+
+                    let now = Instant::now();
+                    if next_loop_start_time > now {
+                        tokio::time::sleep(next_loop_start_time - now).await;
+                    }
+                }
+                tx.send(points).await?;
+                debug!("send data in generate_data");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn generate_data_before(tx: mpsc::Sender<Vec<DataPoint>>) -> anyhow::Result<()> {
+    // データ生成処理
+    // 50msごとにデータを生成してチャンネルに送信
+    // 200データ⇒10s毎にtxに送信×60⇒10分分のデータ
+    let mut field1 = 50.0;
+    let mut field2 = 50.0;
+    let mut field3 = 50.0;
+    let mut next_loop_start_time = Instant::now();
+
+    // for _ in 0..60 {
+    loop {
+        let mut points: Vec<DataPoint> = Vec::<DataPoint>::new();
+        for _ in 0..200 {
+            // println!("{},{},{}", field1, field2, field3);
+            next_loop_start_time += Duration::from_millis(50);
+            let time = Local::now().timestamp_nanos_opt().unwrap();
+
+            let point = generate_tempurature_data_point(field1, field2, field3, time)?;
+            points.push(point);
+
+            {
+                let mut rng = rand::thread_rng();
+                field1 += rng.gen_range(-100..=100) as f64 / 10.0;
+                field2 += rng.gen_range(-100..=100) as f64 / 10.0;
+                field3 += rng.gen_range(-100..=100) as f64 / 10.0;
+            }
+
+            let now = Instant::now();
+            if next_loop_start_time > now {
+                tokio::time::sleep(next_loop_start_time - now).await;
+            }
+        }
+
+        tx.send(points).await?;
+        debug!("send data in generate_data");
     }
 
     Ok(())

@@ -103,4 +103,34 @@ impl DemoMachineCollecter {
 
         Ok(())
     }
+    // NOTE: self.manager_hundle = Noneではうまいことドロップできない
+    // anyhow::Result<(JoinHandle<()>, mpsc::Sender<()>)>
+    // fn make_collecter_thread(&self) -> anyhow::Result<()> {
+    //     let (mut data_revever, interface_hundle) = self.interface.start_moniter().await?;
+    //     let (stop_tx, stop_rx) = oneshot::channel::<()>();
+    //     let sender = self.sender.clone();
+    //     let mut data_manager = DemoMachineDataManager::create(sender);
+    //     let manager_handle = tokio::spawn(async move {
+    //         tokio::select! {
+    //             _ = generate_data(sender) => {
+    //                 // データ生成が完了した場合の処理
+    //             }
+    //             _ = stop_rx => {
+    //                 // 停止シグナルを受け取った場合の処理
+    //             }
+    //         }
+    //     });
+
+    //     Ok(())
+    // }
 }
+
+// struct CollecterThread {
+
+// }
+
+// impl CollecterThread{
+//     fn start()->{
+
+//     }
+// }
