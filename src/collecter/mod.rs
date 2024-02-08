@@ -1,3 +1,5 @@
-mod demo_mashine;
+#[allow(dead_code)]
+pub mod demo_mashine;
 
-pub use demo_mashine::DemoMachineCollecter;
+#[allow(dead_code)]
+pub mod dummy_maker;

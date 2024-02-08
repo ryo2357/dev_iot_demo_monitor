@@ -8,6 +8,7 @@ const CHECK_COMMAND: &[u8] = b"?K\r";
 const CHECK_RESPONSE: &str = "55";
 const MONITOR_READOUT_COMMAND: &[u8] = b"MWR\r";
 
+#[derive(Clone)]
 pub struct DemoMachineConfig {
     address: String,
     check_command: Vec<u8>,

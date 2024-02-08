@@ -1,8 +1,9 @@
 use chrono::{DateTime, Local};
 use influxdb2::models::DataPoint;
-use log::debug;
+use log::{debug, error};
 use tokio::sync::mpsc;
 use tokio::task;
+use tokio::task::JoinHandle;
 
 //
 pub const SET_MONITER_COMMAND: &[u8] =
@@ -27,7 +28,47 @@ const SEND_CHUNK_SIZE: usize = 50;
 // const OPERATING_DATA_INTERVAL_SEC: u32 = 5;
 const OPERATING_DATA_INTERVAL_SEC: u32 = 1;
 
+// point_senderがドロップされるとthreadは終了
+// ⇒DemoMachineDataHundlerがドロップ
+// ⇒端数データの送信処理
 pub struct DemoMachineDataManager {
+    thread: JoinHandle<()>,
+}
+impl DemoMachineDataManager {
+    pub fn create(
+        data_sender: mpsc::Sender<Vec<DataPoint>>,
+        mut point_receiver: mpsc::Receiver<DemoMachineReceiveData>,
+    ) -> anyhow::Result<Self> {
+        let mut state = DemoMachineDataHundler::create(data_sender)?;
+
+        let thread = tokio::spawn(async move {
+            while let Some(data) = point_receiver.recv().await {
+                match state.recceive_response(data).await {
+                    Ok(()) => {}
+                    Err(r) => {
+                        // TODO:ここのエラーハンドリングは用検討
+                        // プログラムを終了させてもよい？
+                        error!(
+                            "error in DemoMachineDataManager::recceive_response():{:?}",
+                            r
+                        )
+                    }
+                }
+            }
+        });
+
+        Ok(Self { thread })
+    }
+    // 明示的にドロップさせる
+    pub async fn wait_thread_finished(self) -> anyhow::Result<()> {
+        debug!("wait thread finished");
+        self.thread.await?;
+        debug!("confirmed thread finished");
+        Ok(())
+    }
+}
+
+struct DemoMachineDataHundler {
     sender: mpsc::Sender<Vec<DataPoint>>,
     last_machine_status: DemoMachineStatus,
     send_chunk_size: usize,
@@ -44,11 +85,11 @@ pub struct DemoMachineDataManager {
     // last_sensor_data_time: DateTime<Local>,
 }
 
-impl DemoMachineDataManager {
-    pub fn create(sender: mpsc::Sender<Vec<DataPoint>>) -> Self {
+impl DemoMachineDataHundler {
+    fn create(sender: mpsc::Sender<Vec<DataPoint>>) -> anyhow::Result<Self> {
         let dt = Local::now();
         // TODO:定数はConfigに
-        Self {
+        Ok(Self {
             sender,
             last_machine_status: DemoMachineStatus::Stopping,
             send_chunk_size: SEND_CHUNK_SIZE,
@@ -57,10 +98,10 @@ impl DemoMachineDataManager {
             operating_data_interval_sec: OPERATING_DATA_INTERVAL_SEC,
             sensor_data: Vec::<DataPoint>::new(),
             // last_sensor_data_time: dt,
-        }
+        })
     }
 
-    pub async fn recceive_response(&mut self, data: DemoMachineReceiveData) -> anyhow::Result<()> {
+    async fn recceive_response(&mut self, data: DemoMachineReceiveData) -> anyhow::Result<()> {
         // debug!("recceive_response");
         // 5秒毎にデータ収集してる
         #[allow(unreachable_patterns)]
@@ -179,7 +220,7 @@ impl DemoMachineDataManager {
     }
 
     // send data
-    // TODO:Drop時に実行する
+    // NOTE:Drop時に実行する
     async fn send_operating_data(&mut self) -> anyhow::Result<()> {
         let send_data = std::mem::take(&mut self.operating_data);
         debug!("send_operating_data {} data", send_data.len());
@@ -195,7 +236,7 @@ impl DemoMachineDataManager {
     }
 }
 
-impl Drop for DemoMachineDataManager {
+impl Drop for DemoMachineDataHundler {
     // NOTE:Dropトレイト内のエラー処理はどうする
     fn drop(&mut self) {
         task::block_in_place(|| {

@@ -1,52 +1,15 @@
+#![allow(dead_code)]
+
 use chrono::Local;
-use futures::stream;
 use influxdb2::models::DataPoint;
-use influxdb2::Client;
-use log::{debug, error, warn};
+use log::{debug, warn};
 use tokio::sync::mpsc;
+use tokio::task;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
 
 use rand::Rng;
 use rand::SeedableRng;
-pub struct InfluxDB {
-    client: Client,
-    bucket: String,
-}
-
-impl InfluxDB {
-    pub fn create_from_env() -> anyhow::Result<Self> {
-        let host = std::env::var("INFLUXDB_HOST")?;
-        debug!("host:{}", host);
-        let org = std::env::var("INFLUXDB_ORG")?;
-        let token = std::env::var("INFLUXDB_TOKEN")?;
-        let bucket = std::env::var("INFLUXDB_BUCKET")?;
-        let client = Client::new(host, org, token);
-
-        Ok(Self { client, bucket })
-    }
-    pub async fn start_send_data(
-        self,
-        mut rx: mpsc::Receiver<Vec<DataPoint>>,
-    ) -> anyhow::Result<()> {
-        debug!("start_send_data");
-        while let Some(points) = rx.recv().await {
-            debug!("receive {:?} data", points.len());
-
-            let result = self.client.write(&self.bucket, stream::iter(points)).await;
-
-            match result {
-                Ok(()) => {
-                    debug!("送信完了")
-                }
-                Err(r) => {
-                    error!("{:?}", r)
-                }
-            }
-        }
-        Ok(())
-    }
-}
 
 pub struct DummyDataMaker {
     sender: mpsc::Sender<Vec<DataPoint>>,
@@ -84,12 +47,23 @@ impl DummyDataMaker {
         if let Some(thread) = self.thread.take() {
             thread.stop().await?;
         } else {
-            warn!("not making data in DummyDataMaker::stop_making_data");
             anyhow::bail!("not making data in DummyDataMaker::stop_making_data")
         }
 
         debug!("DummyDataMaker stop");
         Ok(())
+    }
+}
+impl Drop for DummyDataMaker {
+    fn drop(&mut self) {
+        task::block_in_place(|| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                if self.thread.is_some() {
+                    self.stop_making_data().await.unwrap();
+                }
+            });
+        });
     }
 }
 
