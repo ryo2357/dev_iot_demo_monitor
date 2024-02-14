@@ -85,6 +85,7 @@ struct CollecterThread {
     stop_sender: mpsc::Sender<()>,
 }
 impl CollecterThread {
+    // TODO:インターバルがおかしいので修正が必要
     async fn start(
         tx: mpsc::Sender<DemoMachineReceiveData>,
         config: DemoMachineConfig,

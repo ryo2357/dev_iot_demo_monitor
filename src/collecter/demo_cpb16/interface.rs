@@ -116,19 +116,20 @@ impl CollecterThread {
 
         let collecter_thread = tokio::spawn(async move {
             let mut next_loop_start_time = Instant::now();
+            let mut duration: Duration;
             loop {
                 let now = Instant::now();
                 if next_loop_start_time > now {
-                    tokio::time::sleep(next_loop_start_time - now).await;
+                    duration = next_loop_start_time - now;
                 } else {
-                    next_loop_start_time = now;
+                    duration = Duration::from_millis(0);
                 }
 
                 tokio::select! {
                     _ = stop_receiver.recv() => {
                         break;
                     }
-                    _ = tokio::time::sleep(next_loop_start_time - now) =>{
+                    _ = tokio::time::sleep(duration) =>{
                         let result: anyhow::Result<()> = async {
                             stream.write_all(&command).await?;
 
@@ -162,7 +163,6 @@ impl CollecterThread {
                 }
 
                 next_loop_start_time += Duration::from_millis(interval);
-                debug!("next:{:?},interval:{:?}", next_loop_start_time, interval)
             }
         });
 
