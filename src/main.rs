@@ -8,13 +8,16 @@ mod influxdb;
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     mylogger::init();
-    demo_cpb16_debu_check().await?;
+    demo_cpb16_debug_check().await?;
     Ok(())
 }
 #[allow(dead_code)]
-async fn demo_cpb16_debu_check() -> anyhow::Result<()> {
+async fn demo_cpb16_debug_check() -> anyhow::Result<()> {
     let mut debbugger = collecter::demo_cpb16::DemoCpb16Debugger::create_from_env().await?;
-    debbugger.single_data_collection().await?;
+    debbugger.start_debug_monitor().await?;
+    wait(12).await;
+    log::info!("12秒間のモニター完了");
+    debbugger.stop_debug_monitor().await?;
     Ok(())
 }
 

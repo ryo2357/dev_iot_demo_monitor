@@ -103,7 +103,7 @@ impl CollecterThread {
             "OK" => {}
             "E0" => return Err(anyhow::anyhow!("モニタ登録失敗：デバイス番号異常")),
             "E1" => return Err(anyhow::anyhow!("モニタ登録失敗：コマンド異常")),
-            _ => return Err(anyhow::anyhow!("モニタ登録失敗：想定外の返り値")),
+            t => return Err(anyhow::anyhow!("モニタ登録失敗：想定外の返り値:{}", t)),
         }
         let command = config.get_monitor_readout_command();
         let mut state = DemoMachineState::create_from_config(&config);

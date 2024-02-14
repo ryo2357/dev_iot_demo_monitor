@@ -1,9 +1,13 @@
 use super::data_manager::SET_MONITER_COMMAND;
 
-// 機械稼働時は500msec間隔
-const MONITOR_INTERVAL: u64 = 500;
-// 機械停止時時は1分間隔⇒600,000msec
-const INTERVAL_WHEN_MACHINE_STOP: u64 = 600_000;
+// 機械稼働時は1000msec間隔
+const MONITOR_INTERVAL: u64 = 1000;
+// 機械停止時時は1秒間隔
+const INTERVAL_WHEN_MACHINE_STOP: u64 = 1_000;
+
+// const MONITOR_INTERVAL: u64 = 50;
+// const INTERVAL_WHEN_MACHINE_STOP: u64 = 1000;
+
 const CHECK_COMMAND: &[u8] = b"?K\r";
 const CHECK_RESPONSE: &str = "55";
 const MONITOR_READOUT_COMMAND: &[u8] = b"MWR\r";
@@ -21,7 +25,8 @@ pub struct DemoCpb16Config {
 impl DemoCpb16Config {
     pub fn create_from_env() -> anyhow::Result<Self> {
         let address = std::env::var("DemoCpb16StatusConfigAddress")?;
-        let check_command: Vec<u8> = std::env::var("DemoCpb16StatusConfigCheckCommand")?.into();
+        let check_command = std::env::var("DemoCpb16StatusConfigCheckCommand")? + "\r";
+        let check_command: Vec<u8> = check_command.into();
         let check_response: String = std::env::var("DemoCpb16StatusConfigCheckResponse")?;
 
         let set_moniter_command: Vec<u8> = SET_MONITER_COMMAND.into();

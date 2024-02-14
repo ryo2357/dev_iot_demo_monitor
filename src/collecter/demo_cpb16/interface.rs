@@ -19,14 +19,12 @@ impl DemoCpb16Interface {
     pub async fn create_from_config(config: DemoCpb16Config) -> anyhow::Result<Self> {
         // コンフィグからインターフェイスを作成。動作チェック
         let mut stream = TcpStream::connect(&config.get_address()).await?;
-        let check_command: Vec<u8> = "?".into();
         debug!(
             "To:{:?},command:{:?} ",
             &config.get_address(),
-            check_command
+            &config.get_check_command()
         );
-        // stream.write_all(&config.get_check_command()).await?;
-        stream.write_all(&check_command).await?;
+        stream.write_all(&config.get_check_command()).await?;
         let mut buf = [0; 4];
         let n = stream.read(&mut buf).await?;
         let res = std::str::from_utf8(&buf[..n])
@@ -110,7 +108,7 @@ impl CollecterThread {
             "OK" => {}
             "E0" => return Err(anyhow::anyhow!("モニタ登録失敗：デバイス番号異常")),
             "E1" => return Err(anyhow::anyhow!("モニタ登録失敗：コマンド異常")),
-            _ => return Err(anyhow::anyhow!("モニタ登録失敗：想定外の返り値")),
+            t => return Err(anyhow::anyhow!("モニタ登録失敗：想定外の返り値:{}", t)),
         }
         let command = config.get_monitor_readout_command();
         let mut state = DemoCpb16State::create_from_config(&config);
@@ -119,7 +117,6 @@ impl CollecterThread {
         let collecter_thread = tokio::spawn(async move {
             let mut next_loop_start_time = Instant::now();
             loop {
-                next_loop_start_time += Duration::from_millis(interval);
                 let now = Instant::now();
                 if next_loop_start_time > now {
                     tokio::time::sleep(next_loop_start_time - now).await;
@@ -163,6 +160,9 @@ impl CollecterThread {
                         }
                     }
                 }
+
+                next_loop_start_time += Duration::from_millis(interval);
+                debug!("next:{:?},interval:{:?}", next_loop_start_time, interval)
             }
         });
 

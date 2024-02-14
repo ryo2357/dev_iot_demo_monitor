@@ -15,13 +15,21 @@ impl DemoCpb16Debugger {
         Ok(Self { interface })
     }
 
-    pub async fn single_data_collection(&mut self) -> anyhow::Result<()> {
+    pub async fn start_debug_monitor(&mut self) -> anyhow::Result<()> {
         let (point_sender, mut point_receiver) = mpsc::channel(32);
         self.interface.start_moniter(point_sender).await?;
-        match point_receiver.recv().await {
-            Some(t) => debug!("receive:{}", t.get_data()),
-            None => debug!("sender drop before send data"),
-        }
+
+        tokio::spawn(async move {
+            while let Some(points) = point_receiver.recv().await {
+                // debug!("receive:{}", points.get_data());
+                debug!("receive:{:?}", points.get_dt());
+            }
+        });
+        Ok(())
+    }
+    pub async fn stop_debug_monitor(&mut self) -> anyhow::Result<()> {
+        self.interface.stop_moniter().await?;
+
         Ok(())
     }
 }
