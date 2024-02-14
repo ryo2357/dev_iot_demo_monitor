@@ -8,7 +8,13 @@ mod influxdb;
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     mylogger::init();
-    test_run().await?;
+    demo_cpb16_debu_check().await?;
+    Ok(())
+}
+#[allow(dead_code)]
+async fn demo_cpb16_debu_check() -> anyhow::Result<()> {
+    let mut debbugger = collecter::demo_cpb16::DemoCpb16Debugger::create_from_env().await?;
+    debbugger.single_data_collection().await?;
     Ok(())
 }
 
@@ -43,6 +49,36 @@ async fn verify_influxdb() -> anyhow::Result<()> {
 
 #[allow(dead_code)]
 async fn test_run() -> anyhow::Result<()> {
+    let (data_sender, data_receiver) = mpsc::channel(32);
+    let mut collecter =
+        collecter::demo_mashine::DemoMachineCollecter::create_from_env(data_sender).await?;
+    let mut data_base = influxdb::InfluxDB::create_from_env()?;
+
+    data_base.start_send_data(data_receiver).await?;
+
+    // 10分間データ収集を実行
+    collecter.start_data_collection().await?;
+    log::info!("150秒間データ収集を開始");
+    wait(150).await;
+
+    // 10分間データ収集を停止
+    collecter.stop_data_collection().await?;
+    log::info!("150秒間データ収集を停止");
+    wait(150).await;
+
+    // 10分間データ収集を実行
+    collecter.start_data_collection().await?;
+    log::info!("150秒間データ収集を開始");
+    wait(150).await;
+
+    collecter.stop_data_collection().await?;
+    log::info!("データ収集を終了");
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+async fn test_run_2() -> anyhow::Result<()> {
     let (data_sender, data_receiver) = mpsc::channel(32);
     let mut collecter =
         collecter::demo_mashine::DemoMachineCollecter::create_from_env(data_sender).await?;
