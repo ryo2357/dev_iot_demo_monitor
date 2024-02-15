@@ -1,5 +1,7 @@
-use chrono::{DateTime, Local};
-use influxdb2::models::DataPoint;
+use std::os::unix::thread;
+
+use chrono::{DateTime, Local, SecondsFormat, TimeZone};
+use influxdb2::models::{data_point, DataPoint};
 use log::{debug, error};
 use tokio::sync::mpsc;
 use tokio::task;
@@ -57,89 +59,185 @@ const SEND_CHUNK_SIZE: usize = 50;
 // const OPERATING_DATA_INTERVAL_SEC: u32 = 5;
 const OPERATING_DATA_INTERVAL_SEC: u32 = 1;
 
-// point_senderがドロップされるとthreadは終了
-// ⇒DemoCpb16DataHundlerがドロップ
-// ⇒端数データの送信処理
 pub struct DemoCpb16DataManager {
-    thread: JoinHandle<()>,
+    thread: Option<JoinHandle<DemoCpb16DataHundler>>,
+    state: Option<DemoCpb16DataHundler>,
 }
 impl DemoCpb16DataManager {
-    pub fn create(
-        data_sender: mpsc::Sender<Vec<DataPoint>>,
-        mut point_receiver: mpsc::Receiver<DemoCpb16ReceiveData>,
-    ) -> anyhow::Result<Self> {
-        let mut state = DemoCpb16DataHundler::create(data_sender)?;
+    pub fn create(data_sender: mpsc::Sender<Vec<DataPoint>>) -> anyhow::Result<Self> {
+        let mut state: DemoCpb16DataHundler = DemoCpb16DataHundler::create(data_sender)?;
 
+        Ok(Self {
+            thread: None,
+            state: Some(state),
+        })
+    }
+    pub async fn create_thread(
+        &mut self,
+        mut point_receiver: mpsc::Receiver<DemoCpb16ReceiveData>,
+    ) -> anyhow::Result<()> {
+        if self.thread.is_some() {
+            anyhow::bail!("thread is already created")
+        }
+        let mut state = self.state.take().unwrap();
         let thread = tokio::spawn(async move {
             while let Some(data) = point_receiver.recv().await {
                 match state.recceive_response(data).await {
                     Ok(()) => {}
                     Err(r) => {
                         // TODO:ここのエラーハンドリングは用検討
-                        // プログラムを終了させてもよい？
                         error!("error in DemoCpb16DataManager::recceive_response():{:?}", r)
                     }
                 }
             }
+            state
         });
-
-        Ok(Self { thread })
+        self.thread = Some(thread);
+        Ok(())
     }
-    // 明示的にドロップさせる
-    pub async fn wait_thread_finished(self) -> anyhow::Result<()> {
-        debug!("wait thread finished");
-        self.thread.await?;
-        debug!("confirmed thread finished");
+
+    // PLCの接続が切れたらしたらstateはDemoCpb16DataManagerが保持
+    pub async fn finish_thread(&mut self) -> anyhow::Result<()> {
+        if self.thread.is_none() {
+            anyhow::bail!("thread is none")
+        }
+        let Some(thread) = self.thread.take() else {
+            anyhow::bail!("wait_thread_finishedでエラー")
+        };
+        let state = thread.await?;
+        self.state = Some(state);
         Ok(())
     }
 }
+// データは１秒毎に収集
+// 10秒毎に稼働状況を作成
+// 稼働状況は1分毎に送信（6個）
+// 稼働成果は動作が完了する度に送信（１個）
 
+struct DemoCpb16OperationChunkData{
+    operating_states_chunk_size: u32,
+    operating_states_chunk_count: u32,
+    chunk_start_production_count: u32,
+    chunk_start_defect_count: u32,
+    chunk_production: u32,
+    chunk_defect: u32,
+    chunk_work_second:i64
+}
+
+impl DemoCpb16OperationChunkData{
+    fn new() -> Self{
+        Self{
+            operating_states_chunk_size: 10,
+            operating_states_chunk_count: 0,
+            chunk_start_production_count: 0,
+            chunk_start_defect_count: 0,
+            chunk_production: 0,
+            chunk_defect: 0,
+            chunk_work_second:0
+        }
+    } 
+
+    fn push_running_data(&mut self,data:&DemoCpb16ReceiveState) -> anyhow::Result<Option<DataPoint>> {
+        self.operating_states_chunk_count += 1;
+        self.chunk_production = data.production_count - self.chunk_start_production_count;
+        self.chunk_defect = data.defect_count - self.chunk_start_defect_count;
+        self.chunk_work_second  += 1;
+
+        if self.operating_states_chunk_count == 10{
+            let data = self.make_working_data(data)?;
+            Ok(Some(data))
+        }else{
+            Ok(None)
+        }
+    }
+
+    fn push_stopping_data(&mut self,data:&DemoCpb16ReceiveState) -> anyhow::Result<Option<DataPoint>> {
+        self.operating_states_chunk_count += 1;
+        self.chunk_work_second  += 1;
+
+        self.chunk_start_production_count = 0;
+        self.chunk_start_defect_count= 0;
+
+        if self.operating_states_chunk_count == 10{
+            let data = self.make_working_data(data)?;
+            Ok(Some(data))
+        }else{
+            Ok(None)
+        }
+    }
+
+    fn recet_chunk_from_data(&mut self,data:&DemoCpb16ReceiveState){
+        self.operating_states_chunk_count =0;
+        self.chunk_work_second =0;
+        self.chunk_defect = 0;
+        self.chunk_production = 0;
+        
+        self.chunk_start_production_count = data.production_count;
+        self.chunk_start_defect_count= data.defect_count;
+    }
+    // fn set_new_runnnig(&mut self,data:&DemoCpb16ReceiveState){
+    //     self.chunk_start_production_count = 0;
+    //     self.chunk_start_defect_count= 0;
+    // }
+
+    fn make_working_data(&mut self,data:&DemoCpb16ReceiveState)-> anyhow::Result<DataPoint>{
+        let is_working = match data.status{
+            DemoCpb16Status::Running => true,
+            DemoCpb16Status::Stopping=> false,
+        };
+        let time = match data.receive_time.timestamp_nanos_opt() {
+            Some(t) => t,
+            None => anyhow::bail!("parse_operation_dataでエラー"),
+        };
+
+        let working_data = DataPoint::builder("demo_cpb16")
+            .tag("info_type", "working")
+            .field("is_working", is_working)
+            .field("working_second", self.chunk_work_second)
+            .field("production", self.chunk_production as i64)
+            .field("defect", self.chunk_defect as i64)
+            .timestamp(time)
+            .build()?;
+
+        self.recet_chunk_from_data(data);
+
+        Ok(working_data)
+    }
+}
 struct DemoCpb16DataHundler {
     sender: mpsc::Sender<Vec<DataPoint>>,
     last_machine_status: DemoCpb16Status,
-    send_chunk_size: usize,
-
-    // 保存周期の長い稼働情報　5s毎のデータを保存
-    // 機械停止中もデータベースに保存
-    operating_data: Vec<DataPoint>,
-    last_operating_data_time: DateTime<Local>,
-    operating_data_interval_sec: u32,
-
-    // 全データを保存
-    // configのintervalに等しい
-    sensor_data: Vec<DataPoint>,
-    // last_sensor_data_time: DateTime<Local>,
+    operating_states_chunk: DemoCpb16OperationChunkData,
+    send_data_length:usize,
+    operating_send_data: Vec<DataPoint>,
 }
 
 impl DemoCpb16DataHundler {
     fn create(sender: mpsc::Sender<Vec<DataPoint>>) -> anyhow::Result<Self> {
-        let dt = Local::now();
         // TODO:定数はConfigに
         Ok(Self {
             sender,
             last_machine_status: DemoCpb16Status::Stopping,
-            send_chunk_size: SEND_CHUNK_SIZE,
-            operating_data: Vec::<DataPoint>::new(),
-            last_operating_data_time: dt,
-            operating_data_interval_sec: OPERATING_DATA_INTERVAL_SEC,
-            sensor_data: Vec::<DataPoint>::new(),
-            // last_sensor_data_time: dt,
+            operating_states_chunk:DemoCpb16OperationChunkData::new(),
+            send_data_length:6,
+            operating_send_data: Vec::<DataPoint>::new(),
         })
     }
 
     async fn recceive_response(&mut self, data: DemoCpb16ReceiveData) -> anyhow::Result<()> {
         // debug!("recceive_response");
         // 5秒毎にデータ収集してる
+        let state = DemoCpb16ReceiveState::new(data)?;
         #[allow(unreachable_patterns)]
         match self.last_machine_status {
-            DemoCpb16Status::Running => match data.get_status() {
-                DemoCpb16Status::Running => self.recceive_in_runnning(data).await?,
-                DemoCpb16Status::Stopping => self.recceive_to_stopping(data).await?,
+            DemoCpb16Status::Running => match state.status {
+                DemoCpb16Status::Running => self.recceive_in_runnning(state).await?,
+                DemoCpb16Status::Stopping => self.recceive_to_stopping(state).await?,
                 _ => anyhow::bail!("受信データのMachineStatusが不正"),
             },
-            DemoCpb16Status::Stopping => match data.get_status() {
-                DemoCpb16Status::Running => self.recceive_to_runnning(data).await?,
-                DemoCpb16Status::Stopping => self.recceive_in_stopping(data).await?,
+            DemoCpb16Status::Stopping => match state.status {
+                DemoCpb16Status::Running => self.recceive_to_runnning(state).await?,
+                DemoCpb16Status::Stopping => self.recceive_in_stopping(state).await?,
                 _ => {
                     anyhow::bail!("受信データのMachineStatusが不正")
                 }
@@ -150,56 +248,59 @@ impl DemoCpb16DataHundler {
     }
     // 内部関数
     // 稼働状態での分岐
-    async fn recceive_in_stopping(&mut self, data: DemoCpb16ReceiveData) -> anyhow::Result<()> {
-        // debug!("recceive_in_stopping");
-        if self.shoud_set_operating_data(data.get_dt()) {
-            self.set_operation_data(data).await?;
-        }
+    async fn push_send_data(&mut self, data_point: DataPoint) -> anyhow::Result<()> {
+        self.operating_send_data.push(data_point);
+        if self.operating_send_data.len() == self.send_data_length{
+            let send_data = std::mem::replace(&mut self.operating_send_data, Vec::new());
+            self.sender.send(send_data).await?;
+        };
         Ok(())
     }
-    async fn recceive_in_runnning(&mut self, data: DemoCpb16ReceiveData) -> anyhow::Result<()> {
-        // debug!("recceive_in_runnning");
-        if self.shoud_set_operating_data(data.get_dt()) {
-            self.set_operating_and_sensor(data).await?;
-        } else {
-            self.set_sensor_data(data).await?;
-        }
 
+    async fn recceive_in_stopping(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
+        match  self.operating_states_chunk.push_stopping_data(&state)?{
+            Some(data_point) =>self.push_send_data(data_point).await?,
+            None=>{}
+        }
         Ok(())
     }
-    async fn recceive_to_stopping(&mut self, data: DemoCpb16ReceiveData) -> anyhow::Result<()> {
+    async fn recceive_in_runnning(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
+        match  self.operating_states_chunk.push_running_data(&state)?{
+            Some(data_point) =>self.push_send_data(data_point).await?,
+            None=>{}
+        }
+        Ok(())
+    }
+    async fn recceive_to_stopping(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
         self.last_machine_status = DemoCpb16Status::Stopping;
-        debug!("recceive_to_stopping");
 
-        if self.shoud_set_operating_data(data.get_dt()) {
-            self.set_operation_data(data).await?;
-        }
-        // 保持しているセンサー情報を一旦送信
-        self.send_sensor_data().await?;
+        let stopped_result = state.make_stopped_result()?;
+        let mut send_result = Vec::<DataPoint>::new();
+        send_result.push(stopped_result);
+        self.sender.send(send_result).await?;
+
+        // self.recceive_in_stopping(state).await?;
+
         Ok(())
     }
-    async fn recceive_to_runnning(&mut self, data: DemoCpb16ReceiveData) -> anyhow::Result<()> {
+    async fn recceive_to_runnning(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
         self.last_machine_status = DemoCpb16Status::Running;
-        debug!("recceive_to_runnning");
-        // 切り替え時に特殊な処理を行わないので
-        // recceive_in_runnningと同じになる
-        if self.shoud_set_operating_data(data.get_dt()) {
-            self.set_operating_and_sensor(data).await?;
-        } else {
-            self.set_sensor_data(data).await?;
-        }
+
+        let worked_result = state.make_worked_result()?;
+        let mut send_result = Vec::<DataPoint>::new();
+        send_result.push(worked_result);
+        self.sender.send(send_result).await?;
+
+        self.chunk_first_production_count = 0;
+        self.chunk_first_defect_count = 0;
+        self.operating_states_chunk += 1;
+
+        if self.operating_states_chunk
+
+        // self.recceive_in_runnning(state).await?;さいしょ
+
         Ok(())
     }
-    // 判定メソッド
-    fn shoud_set_operating_data(&self, receive_dt: DateTime<Local>) -> bool {
-        let duration = receive_dt - self.last_operating_data_time;
-        let duration_sec = duration.num_seconds() as u32;
-        if duration_sec < self.operating_data_interval_sec {
-            return false;
-        }
-        true
-    }
-
     // set data
     // DemoCpb16ReceiveDataを消費する
     async fn set_operation_data(&mut self, data: DemoCpb16ReceiveData) -> anyhow::Result<()> {
@@ -242,40 +343,40 @@ impl DemoCpb16DataHundler {
         Ok(())
     }
 
-    // send data
-    // NOTE:Drop時に実行する
-    async fn send_operating_data(&mut self) -> anyhow::Result<()> {
-        let send_data = std::mem::take(&mut self.operating_data);
-        debug!("send_operating_data {} data", send_data.len());
-        self.sender.send(send_data).await?;
-        Ok(())
-    }
-    async fn send_sensor_data(&mut self) -> anyhow::Result<()> {
-        let send_data = std::mem::take(&mut self.sensor_data);
-        debug!("send_sensor_data {} data", send_data.len());
-        self.sender.send(send_data).await?;
+    // // send data
+    // // NOTE:Drop時に実行する
+    // async fn send_operating_data(&mut self) -> anyhow::Result<()> {
+    //     let send_data = std::mem::take(&mut self.operating_data);
+    //     debug!("send_operating_data {} data", send_data.len());
+    //     self.sender.send(send_data).await?;
+    //     Ok(())
+    // }
+    // async fn send_sensor_data(&mut self) -> anyhow::Result<()> {
+    //     let send_data = std::mem::take(&mut self.sensor_data);
+    //     debug!("send_sensor_data {} data", send_data.len());
+    //     self.sender.send(send_data).await?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }
 
 impl Drop for DemoCpb16DataHundler {
     // NOTE:Dropトレイト内のエラー処理はどうする
     fn drop(&mut self) {
-        task::block_in_place(|| {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                // 何か非同期的な処理を行う
-                println!("data_manager drop start");
-                if !self.operating_data.is_empty() {
-                    self.send_operating_data().await.unwrap();
-                }
-                if !self.sensor_data.is_empty() {
-                    self.send_sensor_data().await.unwrap();
-                }
-                println!("data_manager drop end");
-            });
-        });
+        // task::block_in_place(|| {
+        //     let rt = tokio::runtime::Runtime::new().unwrap();
+        //     rt.block_on(async {
+        //         // 何か非同期的な処理を行う
+        //         println!("data_manager drop start");
+        //         if !self.operating_data.is_empty() {
+        //             self.send_operating_data().await.unwrap();
+        //         }
+        //         if !self.sensor_data.is_empty() {
+        //             self.send_sensor_data().await.unwrap();
+        //         }
+        //         println!("data_manager drop end");
+        //     });
+        // });
     }
 }
 
@@ -316,77 +417,147 @@ impl DemoCpb16ReceiveData {
     pub fn get_data(&self) -> String {
         self.data.clone()
     }
-    // pub fn move_inner(self) -> (DateTime<Local>, String) {
-    //     (self.dt, self.data)
-    // }
-    // TODO:実態に合わせる必要あり
-    fn parse_operation_data(&self) -> anyhow::Result<DataPoint> {
-        let time = match self.dt.timestamp_nanos_opt() {
+}
+
+struct DemoCpb16ReceiveState {
+    receive_time: DateTime<Local>,
+    status: DemoCpb16Status,
+    working_id: u32,
+    production_count: u32,
+    defect_count: u32,
+    last_production_count: u32,
+    last_defect_count: u32,
+    start_time: Option<DateTime<Local>>,
+    last_start_time: DateTime<Local>,
+    last_end_time: DateTime<Local>,
+}
+impl DemoCpb16ReceiveState {
+    fn new(data: DemoCpb16ReceiveData) -> anyhow::Result<Self> {
+        let res: Vec<&str> = data.data.split(' ').collect();
+        if res.len() != 24 {
+            anyhow::bail!("データ点数の異常")
+        }
+
+        // DM50 : 稼働のユニークIＤ
+        let working_id: u32 = res[2].parse()?;
+        // DM100 : 現在の稼働の生産数(袋)
+        let production_count: u32 = res[3].parse()?;
+        // DM102 : 現在の稼働の不良生産数(袋)
+        let defect_count: u32 = res[4].parse()?;
+        // DM104 : 前回稼働の生産数(袋)
+        let last_production_count: u32 = res[5].parse()?;
+        // DM106 : 前回稼働の不良生産数(袋)
+        let last_defect_count: u32 = res[6].parse()?;
+
+        let start_time = match data.get_status() {
+            DemoCpb16Status::Running => {
+                let dt = parse_datetime(res[7], res[8], res[9], res[10], res[11], res[12])?;
+                Some(dt)
+            }
+            DemoCpb16Status::Stopping => None,
+        };
+
+        let last_start_time = parse_datetime(res[13], res[14], res[15], res[16], res[17], res[18])?;
+        let last_end_time = parse_datetime(res[19], res[20], res[21], res[22], res[23], res[24])?;
+
+        Ok(Self {
+            receive_time: data.dt,
+            status: data.status,
+            working_id,
+            production_count,
+            defect_count,
+            last_production_count,
+            last_defect_count,
+            start_time,
+            last_start_time,
+            last_end_time,
+        })
+    }
+
+    fn make_worked_result(&self) -> anyhow::Result<DataPoint> {
+        let time = match self.receive_time.timestamp_nanos_opt() {
             Some(t) => t,
-            None => anyhow::bail!("parse_operation_dataでエラー"),
+            None => anyhow::bail!("in match self.receive_time.timestamp_nanos_opt()"),
         };
 
-        let res: Vec<&str> = self.data.split(' ').collect();
-
-        let is_running = matches!(self.status, DemoCpb16Status::Running);
-        // let is_running = match self.status {
-        //     DemoCpb16Status::Running => true,
-        //     _ => false,
-        // };
-
-        // 多分u32やがDataPointの型の都合上、i64にパースする必要がある
-        let dm_1100: i64 = match res.get(7) {
-            Some(t) => t.parse()?,
-            None => anyhow::bail!("parse_operation_dataでエラー"),
+        let start_time = match self.last_start_time.timestamp_nanos_opt() {
+            Some(t) => t,
+            None => anyhow::bail!("in match self.last_start_time.timestamp_nanos_opt()"),
         };
 
-        let dm_1000: i64 = match res.get(1) {
-            Some(t) => t.parse()?,
-            None => anyhow::bail!("parse_operation_dataでエラー"),
+        let end_time = match self.last_end_time.timestamp_nanos_opt() {
+            Some(t) => t,
+            None => anyhow::bail!("in match self.last_end_time.timestamp_nanos_opt()"),
         };
 
-        // bool,i64,f64,String,&strが可能
-        let operation_point = DataPoint::builder("demo_machine")
-            .tag("info_type", "operation")
-            .field("is_running", is_running)
-            .field("dm_1100", dm_1100)
-            .field("dm_1000", dm_1000)
+        let delta = (end_time - start_time) / 1_000_000_000;
+
+        let worked_result = DataPoint::builder("demo_cpb16")
+            .tag("info_type", "result")
+            .field("is_working", true)
+            .field("start_time", start_time)
+            .field("end_time", end_time)
+            .field("worked_second", delta)
+            .field("production_count", self.last_production_count as i64)
+            .field("defect_count", self.last_defect_count as i64)
             .timestamp(time)
             .build()?;
 
-        Ok(operation_point)
+        Ok(worked_result)
     }
-    fn parse_sensor_data(&self) -> anyhow::Result<DataPoint> {
-        let time = match self.dt.timestamp_nanos_opt() {
+
+    fn make_stopped_result(&self) -> anyhow::Result<DataPoint> {
+        let time = match self.receive_time.timestamp_nanos_opt() {
             Some(t) => t,
-            None => anyhow::bail!("parse_operation_dataでエラー"),
+            None => anyhow::bail!("in match self.receive_time.timestamp_nanos_opt()"),
         };
 
-        let res: Vec<&str> = self.data.split(' ').collect();
-
-        // センサーデータは稼働中のみ取得するので不要
-        // let is_running = matches!(self.status, DemoCpb16Status::Running);
-
-        let dm_1003: i64 = match res.get(2) {
-            Some(t) => t.parse()?,
-            None => anyhow::bail!("parse_sensor_dataでエラー"),
+        let start_time = match self.last_start_time.timestamp_nanos_opt() {
+            Some(t) => t,
+            None => anyhow::bail!("in match self.last_start_time.timestamp_nanos_opt()"),
         };
 
-        let dm_1004: i64 = match res.get(3) {
-            Some(t) => t.parse()?,
-            None => anyhow::bail!("parse_sensor_dataでエラー"),
+        let end_time = match self.last_end_time.timestamp_nanos_opt() {
+            Some(t) => t,
+            None => anyhow::bail!("in match self.last_end_time.timestamp_nanos_opt()"),
         };
 
-        // bool,i64,f64,String,&strが可能
-        let sensor_point = DataPoint::builder("demo_machine")
-            .tag("info_type", "sensor")
-            .field("tempureture_1", dm_1003)
-            .field("tempureture_2", dm_1004)
+        let delta = (end_time - start_time) / 1_000_000_000;
+
+        let stopped_result = DataPoint::builder("demo_cpb16")
+            .tag("info_type", "result")
+            .field("is_working", false)
+            .field("start_time", start_time)
+            .field("end_time", end_time)
+            .field("stoped_second", delta)
             .timestamp(time)
             .build()?;
 
-        Ok(sensor_point)
+        Ok(stopped_result)
     }
+}
+
+fn parse_datetime(
+    year: &str,
+    month: &str,
+    day: &str,
+    hour: &str,
+    minute: &str,
+    second: &str,
+) -> anyhow::Result<DateTime<Local>> {
+    let mut year: i32 = year.parse()?;
+    year += 2000;
+    let month: u32 = month.parse()?;
+    let day: u32 = day.parse()?;
+    let hour: u32 = hour.parse()?;
+    let minute: u32 = minute.parse()?;
+    let second: u32 = second.parse()?;
+    let dt_result = Local.with_ymd_and_hms(year, month, day, hour, minute, second);
+    let dt = match dt_result {
+        chrono::LocalResult::Single(t) => t,
+        _ => anyhow::bail!("時刻変換に失敗"),
+    };
+    Ok(dt)
 }
 
 #[derive(Debug, PartialEq, Clone)]
