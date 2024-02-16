@@ -37,7 +37,7 @@ impl DemoCpb16Interface {
             debug!("正しい機種");
         } else {
             debug!("想定外の機種");
-            return Err(anyhow::anyhow!("diffelent plc"));
+            return Err(anyhow::anyhow!("different plc"));
         }
 
         Ok(Self {
@@ -46,7 +46,7 @@ impl DemoCpb16Interface {
         })
     }
 
-    pub async fn start_moniter(
+    pub async fn start_monitor(
         &mut self,
         tx: mpsc::Sender<DemoCpb16ReceiveData>,
     ) -> anyhow::Result<()> {
@@ -59,7 +59,7 @@ impl DemoCpb16Interface {
         Ok(())
     }
 
-    pub async fn stop_moniter(&mut self) -> anyhow::Result<()> {
+    pub async fn stop_monitor(&mut self) -> anyhow::Result<()> {
         if let Some(thread) = self.thread.take() {
             thread.stop().await?;
         } else {
@@ -79,7 +79,7 @@ impl Drop for DemoCpb16Interface {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 if self.thread.is_some() {
-                    self.stop_moniter().await.unwrap();
+                    self.stop_monitor().await.unwrap();
                 }
             });
         });
