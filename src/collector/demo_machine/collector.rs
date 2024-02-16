@@ -6,13 +6,13 @@ use super::config::DemoMachineConfig;
 use super::data_manager::DemoMachineDataManager;
 use super::interface::DemoMachineInterface;
 
-pub struct DemoMachineCollecter {
+pub struct DemoMachineCollector {
     data_sender: mpsc::Sender<Vec<DataPoint>>,
     interface: DemoMachineInterface,
     manager: Option<DemoMachineDataManager>,
 }
 
-impl DemoMachineCollecter {
+impl DemoMachineCollector {
     pub async fn create_from_env(
         data_sender: mpsc::Sender<Vec<DataPoint>>,
     ) -> anyhow::Result<Self> {

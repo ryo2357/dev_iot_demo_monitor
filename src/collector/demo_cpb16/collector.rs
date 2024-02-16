@@ -22,7 +22,10 @@ impl DemoCpb16Collector {
         Ok(Self { interface, manager })
     }
 
-    pub async fn start_data_collection(&mut self) -> anyhow::Result<()> {
+    pub async fn start_data_collection(
+        &mut self,
+        disconnect_sender: mpsc::Sender<()>,
+    ) -> anyhow::Result<()> {
         if self.interface.is_monitoring() {
             anyhow::bail!("start_data_collection can not execute: interface is monitoring")
         }
@@ -31,7 +34,10 @@ impl DemoCpb16Collector {
         }
         let (point_sender, point_receiver) = mpsc::channel(32);
         self.manager.create_thread(point_receiver).await?;
-        self.interface.start_monitor(point_sender).await?;
+        self.interface
+            .start_monitor(point_sender, disconnect_sender)
+            .await?;
+
         Ok(())
     }
 

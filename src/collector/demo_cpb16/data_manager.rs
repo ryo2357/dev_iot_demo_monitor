@@ -63,7 +63,7 @@ pub struct DemoCpb16DataManager {
 }
 impl DemoCpb16DataManager {
     pub fn create(data_sender: mpsc::Sender<Vec<DataPoint>>) -> anyhow::Result<Self> {
-        let mut state: DemoCpb16DataHandler = DemoCpb16DataHandler::create(data_sender)?;
+        let state: DemoCpb16DataHandler = DemoCpb16DataHandler::create(data_sender)?;
 
         Ok(Self {
             thread: None,
@@ -211,10 +211,11 @@ impl DemoCpb16OperationChunkData {
     }
 
     fn make_working_data_when_drop(self) -> anyhow::Result<DataPoint> {
-        let is_working = match self.chunk_last_production_count {
-            0 => false,
-            _ => true,
-        };
+        // let is_working = match self.chunk_last_production_count {
+        //     0 => false,
+        //     _ => true,
+        // };
+        let is_working = !matches!(self.chunk_last_production_count, 0);
         let time = match Local::now().timestamp_nanos_opt() {
             Some(t) => t,
             None => anyhow::bail!("parse_operation_dataでエラー"),
@@ -279,23 +280,21 @@ impl DemoCpb16DataHandler {
     async fn push_send_data(&mut self, data_point: DataPoint) -> anyhow::Result<()> {
         self.operating_send_data.push(data_point);
         if self.operating_send_data.len() == self.send_data_length {
-            let send_data = std::mem::replace(&mut self.operating_send_data, Vec::new());
+            let send_data = std::mem::take(&mut self.operating_send_data);
             self.sender.send(send_data).await?;
         };
         Ok(())
     }
 
     async fn receive_in_stopping(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
-        match self.operating_states_chunk.push_stopping_data(&state)? {
-            Some(data_point) => self.push_send_data(data_point).await?,
-            None => {}
+        if let Some(data_point) = self.operating_states_chunk.push_stopping_data(&state)? {
+            self.push_send_data(data_point).await?
         }
         Ok(())
     }
     async fn receive_in_running(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
-        match self.operating_states_chunk.push_running_data(&state)? {
-            Some(data_point) => self.push_send_data(data_point).await?,
-            None => {}
+        if let Some(data_point) = self.operating_states_chunk.push_running_data(&state)? {
+            self.push_send_data(data_point).await?
         }
         Ok(())
     }
@@ -304,8 +303,9 @@ impl DemoCpb16DataHandler {
 
         // 稼働結果の送信
         let stopped_result = state.make_stopped_result()?;
-        let mut send_result = Vec::<DataPoint>::new();
-        send_result.push(stopped_result);
+        // let mut send_result = Vec::<DataPoint>::new();
+        // send_result.push(stopped_result);
+        let send_result = vec![stopped_result; 1];
         self.sender.send(send_result).await?;
 
         // オペレーション記録をチャンクにプッシュ
@@ -317,8 +317,9 @@ impl DemoCpb16DataHandler {
         self.last_machine_status = DemoCpb16Status::Running;
         // 稼働結果の送信
         let worked_result = state.make_worked_result()?;
-        let mut send_result = Vec::<DataPoint>::new();
-        send_result.push(worked_result);
+        // let mut send_result = Vec::<DataPoint>::new();
+        // send_result.push(worked_result);
+        let send_result = vec![worked_result; 1];
         self.sender.send(send_result).await?;
 
         // オペレーション記録をチャンクにプッシュ
@@ -330,7 +331,7 @@ impl DemoCpb16DataHandler {
     // NOTE:Drop時に実行する
     async fn send_chunk_data_when_drop(&mut self) -> anyhow::Result<()> {
         let send_data = std::mem::take(&mut self.operating_send_data);
-        if send_data.len() > 0 {
+        if !send_data.is_empty() {
             self.sender.send(send_data).await?;
         }
 

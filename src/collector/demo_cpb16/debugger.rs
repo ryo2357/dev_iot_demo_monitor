@@ -17,7 +17,10 @@ impl DemoCpb16Debugger {
 
     pub async fn start_debug_monitor(&mut self) -> anyhow::Result<()> {
         let (point_sender, mut point_receiver) = mpsc::channel(32);
-        self.interface.start_monitor(point_sender).await?;
+        let (disconnect_sender, _) = mpsc::channel(32);
+        self.interface
+            .start_monitor(point_sender, disconnect_sender)
+            .await?;
 
         tokio::spawn(async move {
             while let Some(points) = point_receiver.recv().await {

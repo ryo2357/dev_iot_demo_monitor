@@ -13,7 +13,7 @@ use super::data_manager::DemoCpb16Status;
 
 pub struct DemoCpb16Interface {
     config: DemoCpb16Config,
-    thread: Option<CollecterThread>,
+    thread: Option<ConnectionThread>,
 }
 impl DemoCpb16Interface {
     pub async fn create_from_config(config: DemoCpb16Config) -> anyhow::Result<Self> {
@@ -48,13 +48,15 @@ impl DemoCpb16Interface {
 
     pub async fn start_monitor(
         &mut self,
-        tx: mpsc::Sender<DemoCpb16ReceiveData>,
+        data_sender: mpsc::Sender<DemoCpb16ReceiveData>,
+        disconnect_sender: mpsc::Sender<()>,
     ) -> anyhow::Result<()> {
         if self.thread.is_some() {
-            anyhow::bail!("already started moniter in DemoCpb16Interface::start_moniter")
+            anyhow::bail!("already started monitor in DemoCpb16Interface::start_monitor")
         }
-        let collecter_thread = CollecterThread::start(tx, self.config.clone()).await?;
-        self.thread = Some(collecter_thread);
+        let connection_thread =
+            ConnectionThread::start(data_sender, disconnect_sender, self.config.clone()).await?;
+        self.thread = Some(connection_thread);
         debug!("DemoCpb16Interface collect start");
         Ok(())
     }
@@ -85,13 +87,14 @@ impl Drop for DemoCpb16Interface {
         });
     }
 }
-struct CollecterThread {
-    collecter_thread: JoinHandle<()>,
+struct ConnectionThread {
+    connection_thread: JoinHandle<()>,
     stop_sender: mpsc::Sender<()>,
 }
-impl CollecterThread {
+impl ConnectionThread {
     async fn start(
-        tx: mpsc::Sender<DemoCpb16ReceiveData>,
+        data_sender: mpsc::Sender<DemoCpb16ReceiveData>,
+        disconnect_sender: mpsc::Sender<()>,
         config: DemoCpb16Config,
     ) -> anyhow::Result<Self> {
         let (stop_sender, mut stop_receiver) = mpsc::channel(32);
@@ -114,7 +117,7 @@ impl CollecterThread {
         let mut state = DemoCpb16State::create_from_config(&config);
         let mut interval = state.get_interval();
 
-        let collecter_thread = tokio::spawn(async move {
+        let connection_thread = tokio::spawn(async move {
             let mut next_loop_start_time = Instant::now();
             let mut duration: Duration;
             loop {
@@ -151,13 +154,14 @@ impl CollecterThread {
                                 interval = state.get_interval();
                             }
 
-                            tx.send(recceive_data).await?;
+                            data_sender.send(recceive_data).await?;
                             Ok(())
                         }.await;
 
-                        // recceive_data等のエラーハンドリング
+                        // receive_data等のエラーハンドリング
                         if let Err(err) = result {
                             warn!("Error: {}", err);
+                            disconnect_sender.send(()).await.unwrap();
                         }
                     }
                 }
@@ -167,7 +171,7 @@ impl CollecterThread {
         });
 
         Ok(Self {
-            collecter_thread,
+            connection_thread,
             stop_sender,
         })
     }
@@ -175,7 +179,7 @@ impl CollecterThread {
     async fn stop(self) -> anyhow::Result<()> {
         self.stop_sender.send(()).await?;
         // 完了を待つ処理
-        self.collecter_thread.await?;
+        self.connection_thread.await?;
         Ok(())
     }
 }
