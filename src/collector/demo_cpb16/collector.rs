@@ -7,7 +7,6 @@ use super::data_manager::DemoCpb16DataManager;
 use super::interface::DemoCpb16Interface;
 
 pub struct DemoCpb16Collector {
-    // data_sender: mpsc::Sender<Vec<DataPoint>>,
     interface: DemoCpb16Interface,
     manager: DemoCpb16DataManager,
 }

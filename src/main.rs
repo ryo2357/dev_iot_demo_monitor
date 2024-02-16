@@ -3,6 +3,7 @@ use tokio::time::Duration;
 
 mod collector;
 mod influxdb;
+mod runner;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -13,11 +14,11 @@ async fn main() -> anyhow::Result<()> {
 }
 #[allow(dead_code)]
 async fn demo_cpb16_debug_check() -> anyhow::Result<()> {
-    let mut debbugger = collector::demo_cpb16::DemoCpb16Debugger::create_from_env().await?;
-    debbugger.start_debug_monitor().await?;
+    let mut debugger = collector::demo_cpb16::DemoCpb16Debugger::create_from_env().await?;
+    debugger.start_debug_monitor().await?;
     wait(12).await;
     log::info!("12秒間のモニター完了");
-    debbugger.stop_debug_monitor().await?;
+    debugger.stop_debug_monitor().await?;
     Ok(())
 }
 
