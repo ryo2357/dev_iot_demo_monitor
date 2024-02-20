@@ -9,9 +9,17 @@ mod runner;
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     mylogger::init();
-    demo_cpb16_debug_check().await?;
+    demo_cpb16_running().await?;
     Ok(())
 }
+
+#[allow(dead_code)]
+async fn demo_cpb16_running() -> anyhow::Result<()> {
+    let mut runner = runner::demo_bench_test::Runner::create_from_env().await?;
+    runner.execute().await?;
+    Ok(())
+}
+
 #[allow(dead_code)]
 async fn demo_cpb16_debug_check() -> anyhow::Result<()> {
     let mut debugger = collector::demo_cpb16::DemoCpb16Debugger::create_from_env().await?;

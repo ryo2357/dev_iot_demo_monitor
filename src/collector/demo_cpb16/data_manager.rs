@@ -1,6 +1,6 @@
 use chrono::{DateTime, Local, TimeZone};
 use influxdb2::models::DataPoint;
-use log::{debug, error};
+use log::error;
 use tokio::sync::mpsc;
 use tokio::task;
 use tokio::task::JoinHandle;
