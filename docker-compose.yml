@@ -40,5 +40,8 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     networks:
       - network
+
 networks:
   network:
+
+

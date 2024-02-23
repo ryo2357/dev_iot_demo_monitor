@@ -21,7 +21,8 @@
         }
       },
       "extensions": [
-        "Gruntfuggly.todo-tree"
+        "Gruntfuggly.todo-tree",
+        "streetsidesoftware.code-spell-checker"
       ]
     }
   }
