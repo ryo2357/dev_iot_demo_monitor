@@ -1,3 +1,4 @@
+use log::debug;
 use tokio::sync::mpsc;
 use tokio::time::Duration;
 
@@ -10,12 +11,15 @@ async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     mylogger::init();
     demo_cpb16_running().await?;
+    // demo_cpb16_debug_check().await?;
     Ok(())
 }
 
 #[allow(dead_code)]
 async fn demo_cpb16_running() -> anyhow::Result<()> {
-    let mut runner = runner::demo_bench_test::Runner::create_from_env().await?;
+    debug!("1");
+    let mut runner = runner::demo_bench_run::Runner::create_from_env().await?;
+    debug!("2");
     runner.execute().await?;
     Ok(())
 }

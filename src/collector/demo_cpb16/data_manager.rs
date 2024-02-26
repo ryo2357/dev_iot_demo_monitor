@@ -1,6 +1,6 @@
 use chrono::{DateTime, Local, TimeZone};
 use influxdb2::models::DataPoint;
-use log::error;
+use log::{debug, error};
 use tokio::sync::mpsc;
 use tokio::task;
 use tokio::task::JoinHandle;
@@ -10,7 +10,8 @@ pub const SET_MONITER_COMMAND: &[u8] = b"\
     MWS DM0.U DM50.U DM100.U DM102.U DM104.U DM106.U \
     DM10.U DM12.U DM14.U DM16.U DM18.U DM20.U \
     DM22.U DM24.U DM26.U DM28.U DM30.U DM32.U \
-    DM34.U DM36.U DM38.U DM40.U DM42.U DM44.U\r";
+    DM34.U DM36.U DM38.U DM40.U DM42.U DM44.U \
+    DM2.U\r";
 
 // pub const SET_MONITER_COMMAND: &[u8] = b"MWS DM0.U DM50.U DM100.U DM102.U DM104.U DM106.U\r";
 // DM1002を稼働状況にする　⇒　DemoCpb16ReceiveData::create()で確認している
@@ -44,18 +45,11 @@ pub const SET_MONITER_COMMAND: &[u8] = b"\
 //  - DM40 : 時
 //  - DM42 : 分
 //  - DM44 : 秒
-
-const RESPONSE_LENGTH: usize = 143;
-// 5×24+24-1=143
-
-// sensor data 50ms × 50chunk = 2.5s
-// 2.5秒毎に出力される
-const SEND_CHUNK_SIZE: usize = 50;
-
-// operating data 1s × 50chunk = 50s
-// 50秒毎に出力される
-// const OPERATING_DATA_INTERVAL_SEC: u32 = 5;
-const OPERATING_DATA_INTERVAL_SEC: u32 = 1;
+// DM2 : 過去データの有無  00000 : 無し、00001 : あり
+const DATA_LENGTH: usize = 25;
+const RESPONSE_LENGTH: usize = 149;
+// 5×24+24-1=143この-1は何？
+// 6×25-1=148
 
 pub struct DemoCpb16DataManager {
     thread: Option<JoinHandle<DemoCpb16DataHandler>>,
@@ -144,8 +138,16 @@ impl DemoCpb16OperationChunkData {
         data: &DemoCpb16ReceiveState,
     ) -> anyhow::Result<Option<DataPoint>> {
         self.operating_states_chunk_count += 1;
-        self.chunk_production += data.production_count - self.chunk_last_production_count;
-        self.chunk_defect += data.defect_count - self.chunk_last_production_count;
+        // self.chunk_production += data.production_count - self.chunk_last_production_count;
+        let num = data.production_count - self.chunk_last_production_count;
+        self.chunk_production += num;
+        // self.chunk_defect += data.defect_count - self.chunk_last_production_count;
+        // debug!(
+        //     "data.defect_count:{:?},self.chunk_last_defect_count:{:?},",
+        //     data.defect_count, self.chunk_last_defect_count
+        // );
+        let num = data.defect_count - self.chunk_last_defect_count;
+        self.chunk_defect += num;
         self.chunk_last_production_count = data.production_count;
         self.chunk_last_defect_count = data.defect_count;
         self.chunk_work_second += 1;
@@ -302,11 +304,11 @@ impl DemoCpb16DataHandler {
         self.last_machine_status = DemoCpb16Status::Stopping;
 
         // 稼働結果の送信
-        let stopped_result = state.make_stopped_result()?;
-        // let mut send_result = Vec::<DataPoint>::new();
-        // send_result.push(stopped_result);
-        let send_result = vec![stopped_result; 1];
-        self.sender.send(send_result).await?;
+        // 停止時間は記録しない使用に
+        // let stopped_result = state.make_stopped_result()?;
+
+        // let send_result = vec![stopped_result; 1];
+        // self.sender.send(send_result).await?;
 
         // オペレーション記録をチャンクにプッシュ
         self.receive_in_stopping(state).await?;
@@ -315,12 +317,17 @@ impl DemoCpb16DataHandler {
     }
     async fn receive_to_running(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
         self.last_machine_status = DemoCpb16Status::Running;
-        // 稼働結果の送信
-        let worked_result = state.make_worked_result()?;
-        // let mut send_result = Vec::<DataPoint>::new();
-        // send_result.push(worked_result);
-        let send_result = vec![worked_result; 1];
-        self.sender.send(send_result).await?;
+        // NOTE:モニタプログラム起動時かつPLCが稼働中の場合のハンドリングを追加
+        if state.last_working_data.is_some() {
+            // 稼働結果の送信
+            let worked_result = state.make_worked_result()?;
+            // let mut send_result = Vec::<DataPoint>::new();
+            // send_result.push(worked_result);
+            let send_result = vec![worked_result; 1];
+            self.sender.send(send_result).await?;
+        } else {
+            debug!("receive_to_running:過去の稼働データがない")
+        }
 
         // オペレーション記録をチャンクにプッシュ
         self.receive_in_running(state).await?;
@@ -392,6 +399,32 @@ impl DemoCpb16ReceiveData {
         self.data.clone()
     }
 }
+#[derive(Clone, Copy)]
+struct LastWakingData {
+    last_production_count: u32,
+    last_defect_count: u32,
+    last_start_time: DateTime<Local>,
+    last_end_time: DateTime<Local>,
+}
+impl LastWakingData {
+    // fn new(res: &Vec<&str>) -> anyhow::Result<Self> {
+    fn new(res: &[&str]) -> anyhow::Result<Self> {
+        // DM104 : 前回稼働の生産数(袋)
+        let last_production_count: u32 = res[4].parse()?;
+        // DM106 : 前回稼働の不良生産数(袋)
+        let last_defect_count: u32 = res[5].parse()?;
+
+        let last_start_time = parse_datetime(res[12], res[13], res[14], res[15], res[16], res[17])?;
+        let last_end_time = parse_datetime(res[18], res[19], res[20], res[21], res[22], res[23])?;
+
+        Ok(Self {
+            last_production_count,
+            last_defect_count,
+            last_start_time,
+            last_end_time,
+        })
+    }
+}
 
 struct DemoCpb16ReceiveState {
     receive_time: DateTime<Local>,
@@ -399,40 +432,37 @@ struct DemoCpb16ReceiveState {
     working_id: u32,
     production_count: u32,
     defect_count: u32,
-    last_production_count: u32,
-    last_defect_count: u32,
     start_time: Option<DateTime<Local>>,
-    last_start_time: DateTime<Local>,
-    last_end_time: DateTime<Local>,
+
+    last_working_data: Option<LastWakingData>,
 }
 impl DemoCpb16ReceiveState {
     fn new(data: DemoCpb16ReceiveData) -> anyhow::Result<Self> {
         let res: Vec<&str> = data.data.split(' ').collect();
-        if res.len() != 24 {
+        if res.len() != DATA_LENGTH {
             anyhow::bail!("データ点数の異常")
         }
 
         // DM50 : 稼働のユニークIＤ
-        let working_id: u32 = res[2].parse()?;
+        let working_id: u32 = res[1].parse()?;
         // DM100 : 現在の稼働の生産数(袋)
-        let production_count: u32 = res[3].parse()?;
+        let production_count: u32 = res[2].parse()?;
         // DM102 : 現在の稼働の不良生産数(袋)
-        let defect_count: u32 = res[4].parse()?;
-        // DM104 : 前回稼働の生産数(袋)
-        let last_production_count: u32 = res[5].parse()?;
-        // DM106 : 前回稼働の不良生産数(袋)
-        let last_defect_count: u32 = res[6].parse()?;
+        let defect_count: u32 = res[3].parse()?;
 
         let start_time = match data.get_status() {
             DemoCpb16Status::Running => {
-                let dt = parse_datetime(res[7], res[8], res[9], res[10], res[11], res[12])?;
+                let dt = parse_datetime(res[6], res[7], res[8], res[9], res[10], res[11])?;
                 Some(dt)
             }
             DemoCpb16Status::Stopping => None,
         };
 
-        let last_start_time = parse_datetime(res[13], res[14], res[15], res[16], res[17], res[18])?;
-        let last_end_time = parse_datetime(res[19], res[20], res[21], res[22], res[23], res[24])?;
+        let last_working_data = match res[24] {
+            "00001" => Some(LastWakingData::new(&res)?),
+            "00000" => None,
+            _ => None,
+        };
 
         Ok(Self {
             receive_time: data.dt,
@@ -440,26 +470,28 @@ impl DemoCpb16ReceiveState {
             working_id,
             production_count,
             defect_count,
-            last_production_count,
-            last_defect_count,
             start_time,
-            last_start_time,
-            last_end_time,
+            last_working_data,
         })
     }
 
     fn make_worked_result(&self) -> anyhow::Result<DataPoint> {
+        // データがない場合のエラーハンドリング
+        let Some(data) = self.last_working_data else {
+            anyhow::bail!("make_worked_result:データがないのに呼ばれている")
+        };
+        // NOTE: 初回起動時にPLCが稼働状態だった場合のハンドリング
         let time = match self.receive_time.timestamp_nanos_opt() {
             Some(t) => t,
             None => anyhow::bail!("in match self.receive_time.timestamp_nanos_opt()"),
         };
 
-        let start_time = match self.last_start_time.timestamp_nanos_opt() {
+        let start_time = match data.last_start_time.timestamp_nanos_opt() {
             Some(t) => t,
             None => anyhow::bail!("in match self.last_start_time.timestamp_nanos_opt()"),
         };
 
-        let end_time = match self.last_end_time.timestamp_nanos_opt() {
+        let end_time = match data.last_end_time.timestamp_nanos_opt() {
             Some(t) => t,
             None => anyhow::bail!("in match self.last_end_time.timestamp_nanos_opt()"),
         };
@@ -472,43 +504,43 @@ impl DemoCpb16ReceiveState {
             .field("start_time", start_time)
             .field("end_time", end_time)
             .field("worked_second", delta)
-            .field("production_count", self.last_production_count as i64)
-            .field("defect_count", self.last_defect_count as i64)
+            .field("production_count", data.last_production_count as i64)
+            .field("defect_count", data.last_defect_count as i64)
             .timestamp(time)
             .build()?;
 
         Ok(worked_result)
     }
+    // 現状は不要なので実装しない
+    // fn make_stopped_result(&self) -> anyhow::Result<DataPoint> {
+    //     let time = match self.receive_time.timestamp_nanos_opt() {
+    //         Some(t) => t,
+    //         None => anyhow::bail!("in match self.receive_time.timestamp_nanos_opt()"),
+    //     };
 
-    fn make_stopped_result(&self) -> anyhow::Result<DataPoint> {
-        let time = match self.receive_time.timestamp_nanos_opt() {
-            Some(t) => t,
-            None => anyhow::bail!("in match self.receive_time.timestamp_nanos_opt()"),
-        };
+    //     let start_time = match self.last_start_time.timestamp_nanos_opt() {
+    //         Some(t) => t,
+    //         None => anyhow::bail!("in match self.last_start_time.timestamp_nanos_opt()"),
+    //     };
 
-        let start_time = match self.last_start_time.timestamp_nanos_opt() {
-            Some(t) => t,
-            None => anyhow::bail!("in match self.last_start_time.timestamp_nanos_opt()"),
-        };
+    //     let end_time = match self.last_end_time.timestamp_nanos_opt() {
+    //         Some(t) => t,
+    //         None => anyhow::bail!("in match self.last_end_time.timestamp_nanos_opt()"),
+    //     };
 
-        let end_time = match self.last_end_time.timestamp_nanos_opt() {
-            Some(t) => t,
-            None => anyhow::bail!("in match self.last_end_time.timestamp_nanos_opt()"),
-        };
+    //     let delta = (end_time - start_time) / 1_000_000_000;
 
-        let delta = (end_time - start_time) / 1_000_000_000;
+    //     let stopped_result = DataPoint::builder("demo_cpb16")
+    //         .tag("info_type", "result")
+    //         .field("is_working", false)
+    //         .field("start_time", start_time)
+    //         .field("end_time", end_time)
+    //         .field("stopped_second", delta)
+    //         .timestamp(time)
+    //         .build()?;
 
-        let stopped_result = DataPoint::builder("demo_cpb16")
-            .tag("info_type", "result")
-            .field("is_working", false)
-            .field("start_time", start_time)
-            .field("end_time", end_time)
-            .field("stoped_second", delta)
-            .timestamp(time)
-            .build()?;
-
-        Ok(stopped_result)
-    }
+    //     Ok(stopped_result)
+    // }
 }
 
 fn parse_datetime(
@@ -526,10 +558,20 @@ fn parse_datetime(
     let hour: u32 = hour.parse()?;
     let minute: u32 = minute.parse()?;
     let second: u32 = second.parse()?;
+    // debug!(
+    //     "year:{:?},month:{:?},,day:{:?},hour:{:?},minute:{:?},second:{:?}",
+    //     year, month, day, hour, minute, second
+    // );
     let dt_result = Local.with_ymd_and_hms(year, month, day, hour, minute, second);
     let dt = match dt_result {
         chrono::LocalResult::Single(t) => t,
-        _ => anyhow::bail!("時刻変換に失敗"),
+        _ => {
+            error!(
+                "year:{:?},month:{:?},,day:{:?},hour:{:?},minute:{:?},second:{:?}",
+                year, month, day, hour, minute, second
+            );
+            anyhow::bail!("時刻変換に失敗")
+        }
     };
     Ok(dt)
 }

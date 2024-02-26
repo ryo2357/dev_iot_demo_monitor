@@ -1,2 +1,2 @@
 #[allow(dead_code)]
-pub mod demo_bench_test;
+pub mod demo_bench_run;
