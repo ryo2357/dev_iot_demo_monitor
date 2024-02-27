@@ -1,4 +1,5 @@
 use log::debug;
+use log::error;
 use tokio::sync::mpsc;
 use tokio::time::Duration;
 
@@ -8,10 +9,16 @@ mod runner;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenv::dotenv().ok();
     mylogger::init();
-    demo_cpb16_running().await?;
-    // demo_cpb16_debug_check().await?;
+    dotenv::dotenv().ok();
+    if let Err(r) = demo_cpb16_running().await {
+        error!("{{}}:{}", r);
+        error!("{{:?}}:{:?}", r);
+        error!("{{:#}}:{:#}", r);
+        error!("{{:#?}}:{:#?}", r);
+        error!("{{}}:{}", r);
+        anyhow::bail!("error at demo_cpb16_running")
+    };
     Ok(())
 }
 

@@ -5,7 +5,7 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::task;
 use tokio::task::JoinHandle;
-use tokio::time::{Duration, Instant};
+use tokio::time::{timeout, Duration, Instant};
 
 use super::config::DemoCpb16Config;
 use super::data_manager::DemoCpb16ReceiveData;
@@ -100,7 +100,7 @@ impl ConnectionThread {
         let (stop_sender, mut stop_receiver) = mpsc::channel(32);
         let mut stream = TcpStream::connect(&config.get_address()).await?;
         // モニタの登録処理
-        stream.write_all(&config.get_set_moniter_command()).await?;
+        stream.write_all(&config.get_set_monitor_command()).await?;
         let mut buf = [0; 5];
         let n = stream.read(&mut buf).await?;
         let res = std::str::from_utf8(&buf[..n])
@@ -134,11 +134,19 @@ impl ConnectionThread {
                     }
                     _ = tokio::time::sleep(duration) =>{
                         let result: anyhow::Result<()> = async {
-                            stream.write_all(&command).await?;
+                            // let write_result = timeout(Duration::from_secs(10), stream.write_all(&command)).await;
+                            // タイムアウト処理を行う必要がある
+                            // stream.write_all(&command).await?;
+                            let _ = timeout(Duration::from_secs(5), stream.write_all(&command)).await?;
 
                             // NOTE:データ点数が多くなった場合、バッファサイズを大きくする必要がある
                             let mut buf = [0; 1024];
-                            let n = stream.read(&mut buf).await?;
+                            // let n = stream.read(&mut buf).await?;
+                            let n = match timeout(Duration::from_secs(5), stream.read(&mut buf)).await {
+                                Ok(Ok(n)) => n,
+                                Ok(Err(e)) => anyhow::bail!("error in stream.read:{}",e),
+                                Err(_) => anyhow::bail!("timeout in stream.read"),
+                            };
                             let dt = Local::now();
                             let res = std::str::from_utf8(&buf[..n])
                                 .unwrap()

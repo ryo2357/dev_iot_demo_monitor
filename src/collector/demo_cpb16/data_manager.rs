@@ -6,14 +6,14 @@ use tokio::task;
 use tokio::task::JoinHandle;
 
 //
-pub const SET_MONITER_COMMAND: &[u8] = b"\
+pub const SET_MONITOR_COMMAND: &[u8] = b"\
     MWS DM0.U DM50.U DM100.U DM102.U DM104.U DM106.U \
     DM10.U DM12.U DM14.U DM16.U DM18.U DM20.U \
     DM22.U DM24.U DM26.U DM28.U DM30.U DM32.U \
     DM34.U DM36.U DM38.U DM40.U DM42.U DM44.U \
     DM2.U\r";
 
-// pub const SET_MONITER_COMMAND: &[u8] = b"MWS DM0.U DM50.U DM100.U DM102.U DM104.U DM106.U\r";
+// pub const SET_MONITOR_COMMAND: &[u8] = b"MWS DM0.U DM50.U DM100.U DM102.U DM104.U DM106.U\r";
 // DM1002を稼働状況にする　⇒　DemoCpb16ReceiveData::create()で確認している
 // 00000 : 停止流、00001 : 稼働中
 //

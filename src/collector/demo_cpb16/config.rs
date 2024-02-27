@@ -1,4 +1,4 @@
-use super::data_manager::SET_MONITER_COMMAND;
+use super::data_manager::SET_MONITOR_COMMAND;
 
 // 機械稼働時は1000msec間隔
 const MONITOR_INTERVAL: u64 = 1000;
@@ -17,7 +17,7 @@ pub struct DemoCpb16Config {
     address: String,
     check_command: Vec<u8>,
     check_response: String,
-    set_moniter_command: Vec<u8>,
+    set_monitor_command: Vec<u8>,
     monitor_readout_command: Vec<u8>,
     monitor_interval: u64,
     interval_when_machine_stop: u64,
@@ -29,7 +29,7 @@ impl DemoCpb16Config {
         let check_command: Vec<u8> = check_command.into();
         let check_response: String = std::env::var("DemoCpb16StatusConfigCheckResponse")?;
 
-        let set_moniter_command: Vec<u8> = SET_MONITER_COMMAND.into();
+        let set_monitor_command: Vec<u8> = SET_MONITOR_COMMAND.into();
         let monitor_readout_command: Vec<u8> = MONITOR_READOUT_COMMAND.into();
 
         let monitor_interval = MONITOR_INTERVAL;
@@ -39,7 +39,7 @@ impl DemoCpb16Config {
             address,
             check_command,
             check_response,
-            set_moniter_command,
+            set_monitor_command,
             monitor_readout_command,
             monitor_interval,
             interval_when_machine_stop,
@@ -56,8 +56,8 @@ impl DemoCpb16Config {
     pub fn get_check_response(&self) -> String {
         self.check_response.to_owned()
     }
-    pub fn get_set_moniter_command(&self) -> Vec<u8> {
-        self.set_moniter_command.to_owned()
+    pub fn get_set_monitor_command(&self) -> Vec<u8> {
+        self.set_monitor_command.to_owned()
     }
     pub fn get_monitor_readout_command(&self) -> Vec<u8> {
         self.monitor_readout_command.to_owned()
