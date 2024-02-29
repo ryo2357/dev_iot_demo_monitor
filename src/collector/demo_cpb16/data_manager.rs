@@ -99,7 +99,10 @@ impl DemoCpb16DataManager {
         let Some(thread) = self.thread.take() else {
             anyhow::bail!("wait_thread_finishedでエラー")
         };
-        let state = thread.await?;
+        let mut state = thread.await?;
+        // 接続が切れたので一度データを送信しておく
+        state.force_send_data().await?;
+
         self.state = Some(state);
         Ok(())
     }
@@ -334,6 +337,16 @@ impl DemoCpb16DataHandler {
 
         Ok(())
     }
+    // 切断時などの強制送信
+    async fn force_send_data(&mut self) -> anyhow::Result<()> {
+        let send_data = std::mem::take(&mut self.operating_send_data);
+        if !send_data.is_empty() {
+            debug!("force_send_data を実行");
+            self.sender.send(send_data).await?;
+        }
+
+        Ok(())
+    }
 
     // NOTE:Drop時に実行する
     async fn send_chunk_data_when_drop(&mut self) -> anyhow::Result<()> {
@@ -349,6 +362,7 @@ impl DemoCpb16DataHandler {
 impl Drop for DemoCpb16DataHandler {
     // NOTE:Dropトレイト内のエラー処理はどうする
     fn drop(&mut self) {
+        debug!("DemoCpb16DataHandler is drop");
         task::block_in_place(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {

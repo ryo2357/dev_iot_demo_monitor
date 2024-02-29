@@ -31,15 +31,26 @@ impl Runner {
     #[allow(clippy::await_holding_lock)]
     pub async fn execute(&mut self) -> anyhow::Result<()> {
         let (disconnect_sender, mut disconnect_receiver) = mpsc::channel(32);
-        {
+        loop {
             let sender = disconnect_sender.clone();
             let mut collector = self.collector.lock().unwrap();
-            collector.start_data_collection(sender).await?;
+            match collector.start_data_collection(sender).await {
+                Ok(()) => break,
+                Err(r) => warn!("fail connection with PLC:{:?}", r),
+            }
+            info!("Reconnect after 20 seconds");
+            wait(20).await;
         }
         info!("start data collect");
 
         while let Some(()) = disconnect_receiver.recv().await {
             warn!("The connection with the PLC has been lost");
+            // コレクターの停止処理
+            {
+                let mut collector = self.collector.lock().unwrap();
+                collector.stop_data_collection().await?;
+            }
+            // 再接続処理
             loop {
                 info!("Reconnect after 20 seconds");
                 wait(20).await;

@@ -11,7 +11,7 @@ pub struct DemoCpb16Debugger {
 impl DemoCpb16Debugger {
     pub async fn create_from_env() -> anyhow::Result<Self> {
         let config = DemoCpb16Config::create_from_env()?;
-        let interface = DemoCpb16Interface::create_from_config(config).await?;
+        let interface = DemoCpb16Interface::create_from_config(config)?;
         Ok(Self { interface })
     }
 

@@ -16,7 +16,7 @@ impl DemoCpb16Collector {
         data_sender: mpsc::Sender<Vec<DataPoint>>,
     ) -> anyhow::Result<Self> {
         let config = DemoCpb16Config::create_from_env()?;
-        let interface = DemoCpb16Interface::create_from_config(config).await?;
+        let interface = DemoCpb16Interface::create_from_config(config)?;
         let manager = DemoCpb16DataManager::create(data_sender)?;
         Ok(Self { interface, manager })
     }
@@ -33,9 +33,17 @@ impl DemoCpb16Collector {
         }
         let (point_sender, point_receiver) = mpsc::channel(32);
         self.manager.create_thread(point_receiver).await?;
-        self.interface
+        match self
+            .interface
             .start_monitor(point_sender, disconnect_sender)
-            .await?;
+            .await
+        {
+            Ok(()) => {}
+            Err(r) => {
+                self.manager.finish_thread().await?;
+                anyhow::bail!(r);
+            }
+        }
 
         Ok(())
     }

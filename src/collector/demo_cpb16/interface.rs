@@ -13,18 +13,27 @@ use super::data_manager::DemoCpb16Status;
 
 pub struct DemoCpb16Interface {
     config: DemoCpb16Config,
+    is_checked: bool,
     thread: Option<ConnectionThread>,
 }
 impl DemoCpb16Interface {
-    pub async fn create_from_config(config: DemoCpb16Config) -> anyhow::Result<Self> {
+    pub fn create_from_config(config: DemoCpb16Config) -> anyhow::Result<Self> {
         // コンフィグからインターフェイスを作成。動作チェック
-        let mut stream = TcpStream::connect(&config.get_address()).await?;
+        Ok(Self {
+            config,
+            is_checked: false,
+            thread: None,
+        })
+    }
+
+    pub async fn check_connection(&mut self) -> anyhow::Result<()> {
+        let mut stream = TcpStream::connect(&self.config.get_address()).await?;
         debug!(
             "To:{:?},command:{:?} ",
-            &config.get_address(),
-            &config.get_check_command()
+            &self.config.get_address(),
+            &self.config.get_check_command()
         );
-        stream.write_all(&config.get_check_command()).await?;
+        stream.write_all(&self.config.get_check_command()).await?;
         let mut buf = [0; 4];
         let n = stream.read(&mut buf).await?;
         let res = std::str::from_utf8(&buf[..n])
@@ -33,17 +42,15 @@ impl DemoCpb16Interface {
             .to_string();
         debug!("チェックコマンドのレスポンス:{:?}", res);
 
-        if res == config.get_check_response() {
+        if res == self.config.get_check_response() {
             debug!("正しい機種");
         } else {
             debug!("想定外の機種");
             return Err(anyhow::anyhow!("different plc"));
         }
+        self.is_checked = true;
 
-        Ok(Self {
-            config,
-            thread: None,
-        })
+        Ok(())
     }
 
     pub async fn start_monitor(
@@ -53,6 +60,9 @@ impl DemoCpb16Interface {
     ) -> anyhow::Result<()> {
         if self.thread.is_some() {
             anyhow::bail!("already started monitor in DemoCpb16Interface::start_monitor")
+        }
+        if !self.is_checked {
+            self.check_connection().await?;
         }
         let connection_thread =
             ConnectionThread::start(data_sender, disconnect_sender, self.config.clone()).await?;
