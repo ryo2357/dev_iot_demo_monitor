@@ -12,11 +12,7 @@ async fn main() -> anyhow::Result<()> {
     mylogger::init();
     dotenv::dotenv().ok();
     if let Err(r) = demo_cpb16_running().await {
-        error!("{{}}:{}", r);
         error!("{{:?}}:{:?}", r);
-        error!("{{:#}}:{:#}", r);
-        error!("{{:#?}}:{:#?}", r);
-        error!("{{}}:{}", r);
         anyhow::bail!("error at demo_cpb16_running")
     };
     Ok(())

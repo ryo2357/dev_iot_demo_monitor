@@ -141,16 +141,23 @@ impl DemoCpb16OperationChunkData {
         data: &DemoCpb16ReceiveState,
     ) -> anyhow::Result<Option<DataPoint>> {
         self.operating_states_chunk_count += 1;
-        // self.chunk_production += data.production_count - self.chunk_last_production_count;
-        let num = data.production_count - self.chunk_last_production_count;
-        self.chunk_production += num;
-        // self.chunk_defect += data.defect_count - self.chunk_last_production_count;
-        // debug!(
-        //     "data.defect_count:{:?},self.chunk_last_defect_count:{:?},",
-        //     data.defect_count, self.chunk_last_defect_count
-        // );
-        let num = data.defect_count - self.chunk_last_defect_count;
-        self.chunk_defect += num;
+        if data.production_count > self.chunk_last_production_count {
+            let num = data.production_count - self.chunk_last_production_count;
+            self.chunk_production += num;
+        } else {
+            // 停止中も現在稼働の生産数がデータメモリに残っている
+            // 仮想したときにdata.production_count - self.chunk_last_production_countが負になる
+            self.chunk_production += data.production_count;
+        }
+        if data.defect_count > self.chunk_last_defect_count {
+            let num = data.defect_count - self.chunk_last_defect_count;
+            self.chunk_defect += num;
+        } else {
+            // 停止中も現在稼働の不良数がデータメモリに残っている
+            // 仮想したときにdata.production_count - self.chunk_last_production_countが負になる
+            self.chunk_defect += data.defect_count;
+        }
+
         self.chunk_last_production_count = data.production_count;
         self.chunk_last_defect_count = data.defect_count;
         self.chunk_work_second += 1;
@@ -227,11 +234,13 @@ impl DemoCpb16OperationChunkData {
         };
 
         let working_data = DataPoint::builder("demo_cpb16")
-            .tag("info_type", "working")
-            .field("is_working", is_working)
-            .field("working_second", self.chunk_work_second)
-            .field("production", self.chunk_production as i64)
-            .field("defect", self.chunk_defect as i64)
+            .tag("info_type", "chunk_working_data")
+            .field("is_working_last_data", is_working)
+            .field("chunk_working_second", self.chunk_work_second)
+            // 値を作成する
+            .field("chunk_time_second", self.chunk_work_second)
+            .field("chunk_production", self.chunk_production as i64)
+            .field("chunk_defect", self.chunk_defect as i64)
             .timestamp(time)
             .build()?;
 
@@ -287,31 +296,42 @@ impl DemoCpb16DataHandler {
         if self.operating_send_data.len() == self.send_data_length {
             let send_data = std::mem::take(&mut self.operating_send_data);
             self.sender.send(send_data).await?;
-        };
+            debug!("稼働データを送信");
+        }
         Ok(())
     }
 
     async fn receive_in_stopping(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
+        // debug!("receive_in_stopping");
         if let Some(data_point) = self.operating_states_chunk.push_stopping_data(&state)? {
             self.push_send_data(data_point).await?
         }
         Ok(())
     }
     async fn receive_in_running(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
+        // debug!("receive_in_running");
         if let Some(data_point) = self.operating_states_chunk.push_running_data(&state)? {
             self.push_send_data(data_point).await?
         }
         Ok(())
     }
     async fn receive_to_stopping(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
+        debug!("生産機の運転停止");
         self.last_machine_status = DemoCpb16Status::Stopping;
+        // debug!("receive_to_stopping");
 
         // 稼働結果の送信
-        // 停止時間は記録しない使用に
-        // let stopped_result = state.make_stopped_result()?;
-
-        // let send_result = vec![stopped_result; 1];
-        // self.sender.send(send_result).await?;
+        if state.last_working_data.is_some() {
+            // 稼働結果の送信
+            let worked_result = state.make_worked_result()?;
+            // let mut send_result = Vec::<DataPoint>::new();
+            // send_result.push(worked_result);
+            let send_result = vec![worked_result; 1];
+            debug!("receive_to_stopping:稼働結果を送信");
+            self.sender.send(send_result).await?;
+        } else {
+            debug!("receive_to_stopping:過去の稼働データがない")
+        }
 
         // オペレーション記録をチャンクにプッシュ
         self.receive_in_stopping(state).await?;
@@ -320,17 +340,20 @@ impl DemoCpb16DataHandler {
     }
     async fn receive_to_running(&mut self, state: DemoCpb16ReceiveState) -> anyhow::Result<()> {
         self.last_machine_status = DemoCpb16Status::Running;
+        debug!("生産機の運転開始");
+        // debug!("receive_to_running");
         // NOTE:モニタプログラム起動時かつPLCが稼働中の場合のハンドリングを追加
-        if state.last_working_data.is_some() {
-            // 稼働結果の送信
-            let worked_result = state.make_worked_result()?;
-            // let mut send_result = Vec::<DataPoint>::new();
-            // send_result.push(worked_result);
-            let send_result = vec![worked_result; 1];
-            self.sender.send(send_result).await?;
-        } else {
-            debug!("receive_to_running:過去の稼働データがない")
-        }
+        // 停止の記録は送信しない
+        // if state.last_working_data.is_some() {
+        //     // 稼働結果の送信
+        //     let worked_result = state.make_worked_result()?;
+        //     // let mut send_result = Vec::<DataPoint>::new();
+        //     // send_result.push(worked_result);
+        //     let send_result = vec![worked_result; 1];
+        //     self.sender.send(send_result).await?;
+        // } else {
+        //     debug!("receive_to_running:過去の稼働データがない")
+        // }
 
         // オペレーション記録をチャンクにプッシュ
         self.receive_in_running(state).await?;
@@ -460,9 +483,9 @@ impl DemoCpb16ReceiveState {
         // DM50 : 稼働のユニークIＤ
         let working_id: u32 = res[1].parse()?;
         // DM100 : 現在の稼働の生産数(袋)
-        let production_count: u32 = res[2].parse()?;
+        let mut production_count: u32 = res[2].parse()?;
         // DM102 : 現在の稼働の不良生産数(袋)
-        let defect_count: u32 = res[3].parse()?;
+        let mut defect_count: u32 = res[3].parse()?;
 
         let start_time = match data.get_status() {
             DemoCpb16Status::Running => {
@@ -477,6 +500,15 @@ impl DemoCpb16ReceiveState {
             "00000" => None,
             _ => None,
         };
+
+        // 稼働が停止状態なら現在の生産数・不良数をクリア
+        match data.get_status() {
+            DemoCpb16Status::Running => {}
+            DemoCpb16Status::Stopping => {
+                production_count = 0;
+                defect_count = 0;
+            }
+        }
 
         Ok(Self {
             receive_time: data.dt,
@@ -512,14 +544,24 @@ impl DemoCpb16ReceiveState {
 
         let delta = (end_time - start_time) / 1_000_000_000;
 
+        // let worked_result = DataPoint::builder("demo_cpb16")
+        //     .tag("info_type", "result")
+        //     .field("is_working", true)
+        //     .field("start_time", start_time)
+        //     .field("end_time", end_time)
+        //     .field("worked_second", delta)
+        //     .field("production_count", data.last_production_count as i64)
+        //     .field("defect_count", data.last_defect_count as i64)
+        //     .timestamp(time)
+        //     .build()?;
+
         let worked_result = DataPoint::builder("demo_cpb16")
             .tag("info_type", "result")
-            .field("is_working", true)
             .field("start_time", start_time)
             .field("end_time", end_time)
             .field("worked_second", delta)
-            .field("production_count", data.last_production_count as i64)
-            .field("defect_count", data.last_defect_count as i64)
+            .field("result_production_count", data.last_production_count as i64)
+            .field("result_defect_count", data.last_defect_count as i64)
             .timestamp(time)
             .build()?;
 

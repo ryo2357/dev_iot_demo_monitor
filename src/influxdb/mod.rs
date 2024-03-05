@@ -42,12 +42,13 @@ impl InfluxDB {
         let bucket = self.bucket.clone();
         let thread = tokio::spawn(async move {
             while let Some(points) = rx.recv().await {
+                #[allow(unused)]
                 let receive_num = points.len();
                 let result = client.write(&bucket, stream::iter(points)).await;
 
                 match result {
                     Ok(()) => {
-                        debug!("{:?}データを送信完了", receive_num)
+                        // debug!("{:?}データを送信完了", receive_num)
                     }
                     Err(r) => {
                         error!("{:?}", r)
