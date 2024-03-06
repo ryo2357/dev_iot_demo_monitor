@@ -23,7 +23,8 @@
       "extensions": [
         "Gruntfuggly.todo-tree",
         "streetsidesoftware.code-spell-checker",
-        "GitHub.vscode-pull-request-github"
+        "GitHub.vscode-pull-request-github",
+        "yzhang.markdown-all-in-one"
       ]
     }
   }
