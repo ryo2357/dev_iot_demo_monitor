@@ -51,6 +51,7 @@ const RESPONSE_LENGTH: usize = 149;
 // 5×24+24-1=143この-1は何？
 // 6×25-1=148
 
+// 死活保持が必要になったので構造体をハンドルする構造体を定義した
 pub struct DemoCpb16DataManager {
     thread: Option<JoinHandle<DemoCpb16DataHandler>>,
     state: Option<DemoCpb16DataHandler>,
@@ -113,140 +114,7 @@ impl DemoCpb16DataManager {
 // 稼働成果は動作が完了する度に送信（１個）
 // データ収集頻度以下で稼働⇒停止⇒稼働が発生すると問題かも
 
-struct DemoCpb16OperationChunkData {
-    operating_states_chunk_size: u32,
-    operating_states_chunk_count: u32,
-    chunk_last_production_count: u32,
-    chunk_last_defect_count: u32,
-    chunk_production: u32,
-    chunk_defect: u32,
-    chunk_work_second: i64,
-}
-
-impl DemoCpb16OperationChunkData {
-    fn new() -> Self {
-        Self {
-            operating_states_chunk_size: 10,
-            operating_states_chunk_count: 0,
-            chunk_last_production_count: 0,
-            chunk_last_defect_count: 0,
-            chunk_production: 0,
-            chunk_defect: 0,
-            chunk_work_second: 0,
-        }
-    }
-
-    fn push_running_data(
-        &mut self,
-        data: &DemoCpb16ReceiveState,
-    ) -> anyhow::Result<Option<DataPoint>> {
-        self.operating_states_chunk_count += 1;
-        if data.production_count > self.chunk_last_production_count {
-            let num = data.production_count - self.chunk_last_production_count;
-            self.chunk_production += num;
-        } else {
-            // 停止中も現在稼働の生産数がデータメモリに残っている
-            // 仮想したときにdata.production_count - self.chunk_last_production_countが負になる
-            self.chunk_production += data.production_count;
-        }
-        if data.defect_count > self.chunk_last_defect_count {
-            let num = data.defect_count - self.chunk_last_defect_count;
-            self.chunk_defect += num;
-        } else {
-            // 停止中も現在稼働の不良数がデータメモリに残っている
-            // 仮想したときにdata.production_count - self.chunk_last_production_countが負になる
-            self.chunk_defect += data.defect_count;
-        }
-
-        self.chunk_last_production_count = data.production_count;
-        self.chunk_last_defect_count = data.defect_count;
-        self.chunk_work_second += 1;
-
-        if self.operating_states_chunk_count == 10 {
-            let data = self.make_working_data(data)?;
-            Ok(Some(data))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn push_stopping_data(
-        &mut self,
-        data: &DemoCpb16ReceiveState,
-    ) -> anyhow::Result<Option<DataPoint>> {
-        self.operating_states_chunk_count += 1;
-        self.chunk_work_second += 1;
-
-        self.chunk_last_defect_count = 0;
-        self.chunk_last_defect_count = 0;
-
-        if self.operating_states_chunk_count == 10 {
-            let data = self.make_working_data(data)?;
-            Ok(Some(data))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn reset_chunk_from_data(&mut self, data: &DemoCpb16ReceiveState) {
-        self.operating_states_chunk_count = 0;
-        self.chunk_work_second = 0;
-        self.chunk_defect = 0;
-        self.chunk_production = 0;
-
-        self.chunk_last_production_count = data.production_count;
-        self.chunk_last_defect_count = data.defect_count;
-    }
-
-    fn make_working_data(&mut self, data: &DemoCpb16ReceiveState) -> anyhow::Result<DataPoint> {
-        let is_working = match data.status {
-            DemoCpb16Status::Running => true,
-            DemoCpb16Status::Stopping => false,
-        };
-        let time = match data.receive_time.timestamp_nanos_opt() {
-            Some(t) => t,
-            None => anyhow::bail!("parse_operation_dataでエラー"),
-        };
-
-        let working_data = DataPoint::builder("demo_cpb16")
-            .tag("info_type", "working")
-            .field("is_working", is_working)
-            .field("working_second", self.chunk_work_second)
-            .field("production", self.chunk_production as i64)
-            .field("defect", self.chunk_defect as i64)
-            .timestamp(time)
-            .build()?;
-
-        self.reset_chunk_from_data(data);
-
-        Ok(working_data)
-    }
-
-    fn make_working_data_when_drop(self) -> anyhow::Result<DataPoint> {
-        // let is_working = match self.chunk_last_production_count {
-        //     0 => false,
-        //     _ => true,
-        // };
-        let is_working = !matches!(self.chunk_last_production_count, 0);
-        let time = match Local::now().timestamp_nanos_opt() {
-            Some(t) => t,
-            None => anyhow::bail!("parse_operation_dataでエラー"),
-        };
-
-        let working_data = DataPoint::builder("demo_cpb16")
-            .tag("info_type", "chunk_working_data")
-            .field("is_working_last_data", is_working)
-            .field("chunk_working_second", self.chunk_work_second)
-            // 値を作成する
-            .field("chunk_time_second", self.chunk_work_second)
-            .field("chunk_production", self.chunk_production as i64)
-            .field("chunk_defect", self.chunk_defect as i64)
-            .timestamp(time)
-            .build()?;
-
-        Ok(working_data)
-    }
-}
+//
 struct DemoCpb16DataHandler {
     sender: mpsc::Sender<Vec<DataPoint>>,
     last_machine_status: DemoCpb16Status,
@@ -636,4 +504,138 @@ fn parse_datetime(
 pub enum DemoCpb16Status {
     Running,
     Stopping,
+}
+
+struct DemoCpb16OperationChunkData {
+    operating_states_chunk_size: u32,
+    operating_states_chunk_count: u32,
+    chunk_last_production_count: u32,
+    chunk_last_defect_count: u32,
+    chunk_production: u32,
+    chunk_defect: u32,
+    chunk_work_second: i64,
+    chunk_time_second: i64,
+}
+
+impl DemoCpb16OperationChunkData {
+    fn new() -> Self {
+        Self {
+            operating_states_chunk_size: 10,
+            operating_states_chunk_count: 0,
+            chunk_last_production_count: 0,
+            chunk_last_defect_count: 0,
+            chunk_production: 0,
+            chunk_defect: 0,
+            chunk_work_second: 0,
+            chunk_time_second: 0,
+        }
+    }
+
+    fn push_running_data(
+        &mut self,
+        data: &DemoCpb16ReceiveState,
+    ) -> anyhow::Result<Option<DataPoint>> {
+        self.operating_states_chunk_count += 1;
+        if data.production_count > self.chunk_last_production_count {
+            let num = data.production_count - self.chunk_last_production_count;
+            self.chunk_production += num;
+        } else {
+            // 停止中も現在稼働の生産数がデータメモリに残っている
+            // 仮想したときにdata.production_count - self.chunk_last_production_countが負になる
+            self.chunk_production += data.production_count;
+        }
+        if data.defect_count > self.chunk_last_defect_count {
+            let num = data.defect_count - self.chunk_last_defect_count;
+            self.chunk_defect += num;
+        } else {
+            // 停止中も現在稼働の不良数がデータメモリに残っている
+            // 仮想したときにdata.production_count - self.chunk_last_production_countが負になる
+            self.chunk_defect += data.defect_count;
+        }
+
+        self.chunk_last_production_count = data.production_count;
+        self.chunk_last_defect_count = data.defect_count;
+        self.chunk_work_second += 1;
+        self.chunk_time_second += 1;
+
+        if self.operating_states_chunk_count == 10 {
+            let data = self.make_working_data(data)?;
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn push_stopping_data(
+        &mut self,
+        data: &DemoCpb16ReceiveState,
+    ) -> anyhow::Result<Option<DataPoint>> {
+        self.operating_states_chunk_count += 1;
+        self.chunk_time_second += 1;
+
+        self.chunk_last_defect_count = 0;
+        self.chunk_last_defect_count = 0;
+
+        if self.operating_states_chunk_count == 10 {
+            let data = self.make_working_data(data)?;
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn reset_chunk_from_data(&mut self, data: &DemoCpb16ReceiveState) {
+        self.operating_states_chunk_count = 0;
+        self.chunk_work_second = 0;
+        self.chunk_defect = 0;
+        self.chunk_production = 0;
+
+        self.chunk_last_production_count = data.production_count;
+        self.chunk_last_defect_count = data.defect_count;
+    }
+    // チャンクが10になった場合、実行される。
+    fn make_working_data(&mut self, data: &DemoCpb16ReceiveState) -> anyhow::Result<DataPoint> {
+        let is_working = match data.status {
+            DemoCpb16Status::Running => true,
+            DemoCpb16Status::Stopping => false,
+        };
+        let time = match data.receive_time.timestamp_nanos_opt() {
+            Some(t) => t,
+            None => anyhow::bail!("parse_operation_dataでエラー"),
+        };
+
+        let working_data = DataPoint::builder("demo_cpb16")
+            .tag("info_type", "chunk_working_data")
+            .field("is_working_last_data", is_working)
+            .field("chunk_working_second", self.chunk_work_second)
+            .field("chunk_time_second", self.chunk_time_second)
+            .field("chunk_production", self.chunk_production as i64)
+            .field("chunk_defect", self.chunk_defect as i64)
+            .timestamp(time)
+            .build()?;
+
+        self.reset_chunk_from_data(data);
+
+        Ok(working_data)
+    }
+
+    fn make_working_data_when_drop(self) -> anyhow::Result<DataPoint> {
+        let is_working = !matches!(self.chunk_last_production_count, 0);
+        let time = match Local::now().timestamp_nanos_opt() {
+            Some(t) => t,
+            None => anyhow::bail!("parse_operation_dataでエラー"),
+        };
+
+        let working_data = DataPoint::builder("demo_cpb16")
+            .tag("info_type", "chunk_working_data")
+            .field("is_working_last_data", is_working)
+            .field("chunk_working_second", self.chunk_work_second)
+            .field("chunk_time_second", self.chunk_time_second)
+            .field("chunk_production", self.chunk_production as i64)
+            .field("chunk_defect", self.chunk_defect as i64)
+            .timestamp(time)
+            .build()?;
+
+        Ok(working_data)
+    }
 }
