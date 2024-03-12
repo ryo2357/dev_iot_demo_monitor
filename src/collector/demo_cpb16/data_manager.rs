@@ -513,7 +513,7 @@ struct DemoCpb16OperationChunkData {
     chunk_last_defect_count: u32,
     chunk_production: u32,
     chunk_defect: u32,
-    chunk_work_second: i64,
+    chunk_working_second: i64,
     chunk_time_second: i64,
 }
 
@@ -526,7 +526,7 @@ impl DemoCpb16OperationChunkData {
             chunk_last_defect_count: 0,
             chunk_production: 0,
             chunk_defect: 0,
-            chunk_work_second: 0,
+            chunk_working_second: 0,
             chunk_time_second: 0,
         }
     }
@@ -555,7 +555,7 @@ impl DemoCpb16OperationChunkData {
 
         self.chunk_last_production_count = data.production_count;
         self.chunk_last_defect_count = data.defect_count;
-        self.chunk_work_second += 1;
+        self.chunk_working_second += 1;
         self.chunk_time_second += 1;
 
         if self.operating_states_chunk_count == 10 {
@@ -586,7 +586,8 @@ impl DemoCpb16OperationChunkData {
 
     fn reset_chunk_from_data(&mut self, data: &DemoCpb16ReceiveState) {
         self.operating_states_chunk_count = 0;
-        self.chunk_work_second = 0;
+        self.chunk_working_second = 0;
+        self.chunk_time_second = 0;
         self.chunk_defect = 0;
         self.chunk_production = 0;
 
@@ -607,7 +608,7 @@ impl DemoCpb16OperationChunkData {
         let working_data = DataPoint::builder("demo_cpb16")
             .tag("info_type", "chunk_working_data")
             .field("is_working_last_data", is_working)
-            .field("chunk_working_second", self.chunk_work_second)
+            .field("chunk_working_second", self.chunk_working_second)
             .field("chunk_time_second", self.chunk_time_second)
             .field("chunk_production", self.chunk_production as i64)
             .field("chunk_defect", self.chunk_defect as i64)
@@ -629,7 +630,7 @@ impl DemoCpb16OperationChunkData {
         let working_data = DataPoint::builder("demo_cpb16")
             .tag("info_type", "chunk_working_data")
             .field("is_working_last_data", is_working)
-            .field("chunk_working_second", self.chunk_work_second)
+            .field("chunk_working_second", self.chunk_working_second)
             .field("chunk_time_second", self.chunk_time_second)
             .field("chunk_production", self.chunk_production as i64)
             .field("chunk_defect", self.chunk_defect as i64)
