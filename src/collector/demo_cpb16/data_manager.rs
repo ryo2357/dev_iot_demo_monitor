@@ -536,7 +536,7 @@ impl DemoCpb16OperationChunkData {
         data: &DemoCpb16ReceiveState,
     ) -> anyhow::Result<Option<DataPoint>> {
         self.operating_states_chunk_count += 1;
-        if data.production_count > self.chunk_last_production_count {
+        if data.production_count >= self.chunk_last_production_count {
             let num = data.production_count - self.chunk_last_production_count;
             self.chunk_production += num;
         } else {
@@ -544,7 +544,7 @@ impl DemoCpb16OperationChunkData {
             // 仮想したときにdata.production_count - self.chunk_last_production_countが負になる
             self.chunk_production += data.production_count;
         }
-        if data.defect_count > self.chunk_last_defect_count {
+        if data.defect_count >= self.chunk_last_defect_count {
             let num = data.defect_count - self.chunk_last_defect_count;
             self.chunk_defect += num;
         } else {
@@ -614,7 +614,8 @@ impl DemoCpb16OperationChunkData {
             .field("chunk_defect", self.chunk_defect as i64)
             .timestamp(time)
             .build()?;
-
+        // debug!("make_working_data chunk_defect:{}", self.chunk_defect);
+        // debug!("make_working_data data.defect_count:{}", data.defect_count);
         self.reset_chunk_from_data(data);
 
         Ok(working_data)
