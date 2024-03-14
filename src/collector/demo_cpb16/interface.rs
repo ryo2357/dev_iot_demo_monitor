@@ -75,7 +75,7 @@ impl DemoCpb16Interface {
         if let Some(thread) = self.thread.take() {
             thread.stop().await?;
         } else {
-            anyhow::bail!("not start collect in DemoCpb16Interface::stop_moniter")
+            anyhow::bail!("not start collect in DemoCpb16Interface::stop_monitor")
         }
         debug!("DemoCpb16Interface collect stop");
         Ok(())
@@ -164,15 +164,15 @@ impl ConnectionThread {
                                 .to_string();
 
                             // NOTE:想定外のデータについてのハンドリングが必要
-                            let recceive_data = DemoCpb16ReceiveData::create(dt, res)?;
+                            let receive_data = DemoCpb16ReceiveData::create(dt, res)?;
 
-                            let now_status = recceive_data.get_status();
+                            let now_status = receive_data.get_status();
                             if state.get_status() != now_status {
                                 state.set_status(now_status);
                                 interval = state.get_interval();
                             }
 
-                            data_sender.send(recceive_data).await?;
+                            data_sender.send(receive_data).await?;
                             Ok(())
                         }.await;
 

@@ -14,5 +14,7 @@ services:
     # network をbridgeではなくhostにしたんでこのコンテナからinfluxdbコンテナを呼び出すには
     # http://influxdb:8086 ではなく http://localhost:8086
     network_mode: "host"
+    environment:
+      - TZ=Asia/Tokyo
     # networks:
     #   - network
