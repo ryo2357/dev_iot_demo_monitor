@@ -1,5 +1,5 @@
-use log::debug;
-use log::error;
+#[allow(unused_imports)]
+use log::{debug, error};
 use tokio::sync::mpsc;
 use tokio::time::Duration;
 

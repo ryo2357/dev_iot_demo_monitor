@@ -32,7 +32,7 @@ impl DemoCpb16Interface {
         debug!(
             "To:{:?},command:{:?} ",
             &self.config.get_address(),
-            std::str::from_utf8(config::CHECK_COMMAND)
+            std::str::from_utf8(config::CHECK_COMMAND).unwrap()
         );
         stream.write_all(config::CHECK_COMMAND).await?;
         let mut buf = [0; 4];
@@ -43,7 +43,7 @@ impl DemoCpb16Interface {
             .to_string();
         debug!("チェックコマンドのレスポンス:{:?}", res);
 
-        if res == self.config.get_check_response() {
+        if res == config::CHECK_RESPONSE {
             debug!("正しい機種");
         } else {
             debug!("想定外の機種");
@@ -96,7 +96,7 @@ impl DemoCpb16Interface {
         let mut stream = TcpStream::connect(&self.config.get_address()).await?;
 
         let command = self.config.get_time_preference_command();
-        debug!("command:{:?}", std::str::from_utf8(&command));
+        debug!("command:{:?}", std::str::from_utf8(&command).unwrap());
         stream
             .write_all(&self.config.get_time_preference_command())
             .await?;
@@ -147,7 +147,7 @@ impl ConnectionThread {
         let (stop_sender, mut stop_receiver) = mpsc::channel(32);
         let mut stream = TcpStream::connect(&config.get_address()).await?;
         // モニタの登録処理
-        stream.write_all(&config.get_set_monitor_command()).await?;
+        stream.write_all(config::SET_MONITOR_COMMAND).await?;
         let mut buf = [0; 5];
         let n = stream.read(&mut buf).await?;
         let res = std::str::from_utf8(&buf[..n])
@@ -160,8 +160,7 @@ impl ConnectionThread {
             "E1" => return Err(anyhow::anyhow!("モニタ登録失敗：コマンド異常")),
             t => return Err(anyhow::anyhow!("モニタ登録失敗：想定外の返り値:{}", t)),
         }
-        let command = config.get_monitor_readout_command();
-        let mut state = DemoCpb16State::create_from_config(&config);
+        let mut state = DemoCpb16State::new();
         let mut interval = state.get_interval();
 
         let connection_thread = tokio::spawn(async move {
@@ -184,7 +183,7 @@ impl ConnectionThread {
                             // let write_result = timeout(Duration::from_secs(10), stream.write_all(&command)).await;
                             // タイムアウト処理を行う必要がある
                             // stream.write_all(&command).await?;
-                            let _ = timeout(Duration::from_secs(5), stream.write_all(&command)).await?;
+                            let _ = timeout(Duration::from_secs(5), stream.write_all(config::MONITOR_READOUT_COMMAND)).await?;
 
                             // NOTE:データ点数が多くなった場合、バッファサイズを大きくする必要がある
                             let mut buf = [0; 1024];
@@ -246,11 +245,11 @@ struct DemoCpb16State {
 }
 
 impl DemoCpb16State {
-    fn create_from_config(config: &DemoCpb16Config) -> Self {
+    fn new() -> Self {
         Self {
             status: DemoCpb16Status::Stopping,
-            monitor_interval: config.get_monitor_interval(),
-            interval_when_machine_stop: config.get_interval_when_machine_stop(),
+            monitor_interval: config::MONITOR_INTERVAL,
+            interval_when_machine_stop: config::INTERVAL_WHEN_MACHINE_STOP,
         }
     }
 
