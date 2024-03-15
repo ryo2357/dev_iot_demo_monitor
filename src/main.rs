@@ -11,7 +11,7 @@ mod runner;
 async fn main() -> anyhow::Result<()> {
     mylogger::init();
     dotenv::dotenv().ok();
-    if let Err(r) = demo_cpb16_running().await {
+    if let Err(r) = demo_cpb16_set_time().await {
         error!("{{:?}}:{:?}", r);
         anyhow::bail!("error at demo_cpb16_running")
     };
@@ -19,10 +19,17 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[allow(dead_code)]
+async fn demo_cpb16_set_time() -> anyhow::Result<()> {
+    let mut debugger = collector::demo_cpb16::DemoCpb16Debugger::create_from_env().await?;
+    log::info!("コマンドテスト開始");
+    debugger.set_time().await?;
+    log::info!("コマンドテスト完了");
+    Ok(())
+}
+
+#[allow(dead_code)]
 async fn demo_cpb16_running() -> anyhow::Result<()> {
-    debug!("1");
     let mut runner = runner::demo_bench_run::Runner::create_from_env().await?;
-    debug!("2");
     runner.execute().await?;
     Ok(())
 }

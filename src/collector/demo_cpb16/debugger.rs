@@ -35,4 +35,10 @@ impl DemoCpb16Debugger {
 
         Ok(())
     }
+
+    pub async fn set_time(&mut self) -> anyhow::Result<()> {
+        self.interface.set_time_now().await?;
+
+        Ok(())
+    }
 }
