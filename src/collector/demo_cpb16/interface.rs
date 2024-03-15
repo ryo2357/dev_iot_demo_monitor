@@ -7,6 +7,7 @@ use tokio::task;
 use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration, Instant};
 
+use super::config;
 use super::config::DemoCpb16Config;
 use super::data_manager::DemoCpb16ReceiveData;
 use super::data_manager::DemoCpb16Status;
@@ -31,9 +32,9 @@ impl DemoCpb16Interface {
         debug!(
             "To:{:?},command:{:?} ",
             &self.config.get_address(),
-            &self.config.get_check_command()
+            std::str::from_utf8(config::CHECK_COMMAND)
         );
-        stream.write_all(&self.config.get_check_command()).await?;
+        stream.write_all(config::CHECK_COMMAND).await?;
         let mut buf = [0; 4];
         let n = stream.read(&mut buf).await?;
         let res = std::str::from_utf8(&buf[..n])
@@ -83,6 +84,42 @@ impl DemoCpb16Interface {
 
     pub fn is_monitoring(&self) -> bool {
         self.thread.is_some()
+    }
+
+    pub async fn set_time_now(&mut self) -> anyhow::Result<()> {
+        if self.thread.is_some() {
+            anyhow::bail!("already started monitor in DemoCpb16Interface::set_time_now")
+        }
+        if !self.is_checked {
+            self.check_connection().await?;
+        }
+        let mut stream = TcpStream::connect(&self.config.get_address()).await?;
+
+        let command = self.config.get_time_preference_command();
+        debug!("command:{:?}", std::str::from_utf8(&command));
+        stream
+            .write_all(&self.config.get_time_preference_command())
+            .await?;
+        let mut buf = [0; 4];
+        let n = stream.read(&mut buf).await?;
+        let res = std::str::from_utf8(&buf[..n])
+            .unwrap()
+            .trim_end_matches("\r\n");
+
+        match res {
+            config::OK_RESPONSE => {
+                debug!("時刻設定成功");
+            }
+
+            config::COMMAND_ABNORMAL_RESPONSE => {
+                debug!("コマンドエラー");
+            }
+            _ => {
+                debug!("想定外のレスポンス:{:?}", res);
+            }
+        }
+
+        Ok(())
     }
 }
 impl Drop for DemoCpb16Interface {
