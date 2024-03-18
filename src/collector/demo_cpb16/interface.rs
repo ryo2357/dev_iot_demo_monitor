@@ -1,5 +1,5 @@
 use chrono::Local;
-use log::{debug, warn};
+use log::{debug, error, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -29,11 +29,11 @@ impl DemoCpb16Interface {
 
     pub async fn check_connection(&mut self) -> anyhow::Result<()> {
         let mut stream = TcpStream::connect(&self.config.get_address()).await?;
-        debug!(
-            "To:{:?},command:{:?} ",
-            &self.config.get_address(),
-            std::str::from_utf8(config::CHECK_COMMAND).unwrap()
-        );
+        // debug!(
+        //     "To:{:?},command:{:?} ",
+        //     &self.config.get_address(),
+        //     std::str::from_utf8(config::CHECK_COMMAND).unwrap()
+        // );
         stream.write_all(config::CHECK_COMMAND).await?;
         let mut buf = [0; 4];
         let n = stream.read(&mut buf).await?;
@@ -41,10 +41,10 @@ impl DemoCpb16Interface {
             .unwrap()
             .trim_end_matches("\r\n")
             .to_string();
-        debug!("チェックコマンドのレスポンス:{:?}", res);
+        // debug!("チェックコマンドのレスポンス:{:?}", res);
 
         if res == config::CHECK_RESPONSE {
-            debug!("正しい機種");
+            debug!("接続成功");
         } else {
             debug!("想定外の機種");
             return Err(anyhow::anyhow!("different plc"));
@@ -64,6 +64,7 @@ impl DemoCpb16Interface {
         }
         if !self.is_checked {
             self.check_connection().await?;
+            self.set_time_now().await?;
         }
         let connection_thread =
             ConnectionThread::start(data_sender, disconnect_sender, self.config.clone()).await?;
@@ -96,10 +97,42 @@ impl DemoCpb16Interface {
         let mut stream = TcpStream::connect(&self.config.get_address()).await?;
 
         let command = self.config.get_time_preference_command();
+        // debug!("command:{:?}", std::str::from_utf8(&command).unwrap());
+        stream.write_all(&command).await?;
+        let mut buf = [0; 4];
+        let n = stream.read(&mut buf).await?;
+        let res = std::str::from_utf8(&buf[..n])
+            .unwrap()
+            .trim_end_matches("\r\n");
+
+        match res {
+            config::OK_RESPONSE => {
+                debug!("時刻設定成功");
+            }
+
+            config::COMMAND_ABNORMAL_RESPONSE => {
+                error!("コマンドエラー");
+            }
+            _ => {
+                debug!("想定外のレスポンス:{:?}", res);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn set_time_dummy(&mut self) -> anyhow::Result<()> {
+        if self.thread.is_some() {
+            anyhow::bail!("already started monitor in DemoCpb16Interface::set_time_now")
+        }
+        if !self.is_checked {
+            self.check_connection().await?;
+        }
+        let mut stream = TcpStream::connect(&self.config.get_address()).await?;
+
+        let command = self.config.get_time_preference_dummy_command();
         debug!("command:{:?}", std::str::from_utf8(&command).unwrap());
-        stream
-            .write_all(&self.config.get_time_preference_command())
-            .await?;
+        stream.write_all(&command).await?;
         let mut buf = [0; 4];
         let n = stream.read(&mut buf).await?;
         let res = std::str::from_utf8(&buf[..n])
