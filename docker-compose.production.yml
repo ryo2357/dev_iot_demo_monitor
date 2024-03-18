@@ -4,9 +4,57 @@ services:
   gateway:
     container_name: gateway-iot_demo_monitor
     build:
-      context: $PWD
-      dockerfile: $PWD/dockerfile
+      context: .
+      dockerfile: ./dockerfile
       target: production
     tty: true
     volumes:
-      - $PWD/log:/usr/local/bin/log
+      - ./production_log:/usr/local/bin/log
+    network_mode: "host"
+    environment:
+      - TZ=Asia/Tokyo
+    depends_on:
+      - influxdb
+      - grafana
+
+  influxdb:
+    image: influxdb:2.7.1
+    container_name: iot_demo_monitor-db
+    volumes:
+      - ./.influxdb2/data:/var/lib/influxdb2
+      - ./.influxdb2/config:/etc/influxdb2
+    # volumes:
+    #   - $PWD/.influxdb2/data:/var/lib/influxdb2
+    #   - $PWD/.influxdb2/config:/etc/influxdb2
+    ports:
+      - 8086:8086
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password
+      - DOCKER_INFLUXDB_INIT_ORG=organization
+      - DOCKER_INFLUXDB_INIT_BUCKET=bucket
+    networks:
+      - network
+
+  grafana:
+    image: grafana/grafana-oss:9.5.5
+    container_name: iot_demo_monitor-viewer
+    ports:
+      - 8085:3000
+    # user: "472"
+    user: "0"
+    volumes:
+      - ./.grafana/data:/var/lib/grafana
+    # volumes:
+    #   - $PWD/.grafana/data:/var/lib/grafana
+    depends_on:
+      - influxdb
+    environment:
+      - GF_SERVER_ROOT_URL=http://localhost:8085
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - network
+
+networks:
+  network:

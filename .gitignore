@@ -2,6 +2,8 @@
 /.grafana
 /.influxdb2
 /log
+/production_log
+
 
 .env
 
