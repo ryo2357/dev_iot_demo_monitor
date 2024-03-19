@@ -30,6 +30,7 @@ async fn demo_cpb16_set_time() -> anyhow::Result<()> {
 
 #[allow(dead_code)]
 async fn demo_cpb16_running() -> anyhow::Result<()> {
+    log::info!("製袋16号機のデモデータ収集開始");
     let mut runner = runner::demo_bench_run::Runner::create_from_env().await?;
     runner.execute().await?;
     Ok(())

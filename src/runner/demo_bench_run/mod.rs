@@ -1,4 +1,4 @@
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::time::Duration;
@@ -36,9 +36,9 @@ impl Runner {
             let mut collector = self.collector.lock().unwrap();
             match collector.start_data_collection(sender).await {
                 Ok(()) => break,
-                Err(r) => warn!("fail connection with PLC:{:?}", r),
+                Err(r) => debug!("fail connection with PLC:{:?}", r),
             }
-            info!("Reconnect after 20 seconds");
+            debug!("Reconnect after 20 seconds");
             wait(20).await;
         }
         info!("start data collect");
