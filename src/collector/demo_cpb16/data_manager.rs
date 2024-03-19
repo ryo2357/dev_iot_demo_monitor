@@ -1,6 +1,6 @@
 use chrono::{DateTime, Local, TimeZone};
 use influxdb2::models::DataPoint;
-use log::{debug, error};
+use log::{debug, error, info};
 use tokio::sync::mpsc;
 use tokio::task;
 use tokio::task::JoinHandle;
@@ -195,7 +195,7 @@ impl DemoCpb16DataHandler {
             // let mut send_result = Vec::<DataPoint>::new();
             // send_result.push(worked_result);
             let send_result = vec![worked_result; 1];
-            debug!("receive_to_stopping:稼働結果を送信");
+            info!("稼働結果を送信");
             self.sender.send(send_result).await?;
         } else {
             debug!("receive_to_stopping:過去の稼働データがない")
